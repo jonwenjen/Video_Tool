@@ -118,8 +118,9 @@ round-trip.
   browser's rather than a bundled demuxer. Export uses WebCodecs with mp4-muxer
   and covers H.264, VP9 and AV1, but the export path is not yet covered by the
   e2e assertions.
-- The shared curve LUT is one texture for the whole graph, so the last node
-  with non-identity curves wins. Documented in `pipeline.ts` rather than
-  shipped as a node whose curves silently do nothing.
+- The shared curve LUT is one texture for the whole graph, which looks like a
+  per-node bug and is not: it is re-uploaded inside the render loop, once per
+  node, before that node draws. Swapping two nodes' curves changes the output —
+  asserted in `scripts/verify-node-curves.mjs`.
 - Tracking is not implemented. The panel and node kind exist; the solver does
   not.

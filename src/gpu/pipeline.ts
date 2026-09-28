@@ -1028,6 +1028,17 @@ export class ColorPipeline {
    * Re-upload the curve texture only when the control points actually
    * changed. Called from render() so a caller that never touches
    * buildCurveLut still gets working curves.
+   *
+   * The whole graph shares ONE curve texture, which reads like a bug and was
+   * documented as one ("the last node with non-identity curves wins"). It is
+   * not: this is called once per node inside the render loop, immediately
+   * before that node's uniforms are set and it draws, so each node uploads its
+   * own curve before its own pass. The single-entry `curveSig` cache is
+   * invalidated by each node's differing grade. Swapping two nodes' curves
+   * changes the output, which is the assertion that proves it — see
+   * scripts/verify-node-curves.mjs. Do not hoist this call out of the loop,
+   * and do not "fix" the shared texture into a per-node one: that would be a
+   * large refactor of the ping-pong for no behavioural change.
    */
   private syncCurveLut(grade: GradeState): void {
     const sig = curveSignature(grade);
