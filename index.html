@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Hermes Resolve</title>
+  </head>
+  <body>
+    <div id="app" data-page="color" data-ready="0" data-playing="0">
+      <!-- ============================================================== -->
+      <!-- Menu bar                                                        -->
+      <!-- ============================================================== -->
+      <header id="menubar" class="menubar" role="menubar" aria-label="Main menu">
+        <div class="menubar-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-name">Hermes&nbsp;Resolve</span>
+        </div>
+        <div class="menus">
+          <div class="menu" data-menu="file">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">File</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="import_media" type="button">Import Media…<kbd>⌘I</kbd></button></li>
+              <li role="none"><button role="menuitem" data-cmd="save_project" type="button">Save Project<kbd>⌘S</kbd></button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="gotoPage" data-page="deliver" type="button">Deliver</button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="edit">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Edit</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="undo" type="button">Undo<kbd>⌘Z</kbd></button></li>
+              <li role="none"><button role="menuitem" data-cmd="redo" type="button">Redo<kbd>⇧⌘Z</kbd></button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="copy" type="button">Copy Grade</button></li>
+              <li role="none"><button role="menuitem" data-cmd="paste" type="button">Paste Grade</button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="trim">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Trim</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="trim_in" type="button">Trim Clip In<kbd>I</kbd></button></li>
+              <li role="none"><button role="menuitem" data-cmd="trim_out" type="button">Trim Clip Out<kbd>O</kbd></button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="trim_clip" type="button">Trim Clip to Playhead<kbd>⌘T</kbd></button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="timeline">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Timeline</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="add_track" type="button">Add Track</button></li>
+              <li role="none"><button role="menuitem" data-cmd="delete_track" type="button">Delete Track</button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="gotoPage" data-page="edit" type="button">Go to Edit Page</button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="clip">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Clip</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="enable_clip" type="button">Enable / Disable</button></li>
+              <li role="none"><button role="menuitem" data-cmd="split" type="button">Split at Playhead<kbd>S</kbd></button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="reset_grade" type="button">Reset Grade</button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="mark">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Mark</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="mark_in" type="button">Mark In<kbd>I</kbd></button></li>
+              <li role="none"><button role="menuitem" data-cmd="mark_out" type="button">Mark Out<kbd>O</kbd></button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="add_marker" type="button">Add Marker<kbd>M</kbd></button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="view">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">View</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="toggle_scopes" type="button">Scopes</button></li>
+              <li role="none"><button role="menuitem" data-cmd="toggle_nodes" type="button">Node Editor</button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="toggle_console" type="button">Agent Console<kbd>`</kbd></button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="playback">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Playback</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="play" type="button">Play<kbd>Space</kbd></button></li>
+              <li role="none"><button role="menuitem" data-cmd="pause" type="button">Pause</button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="step_back" type="button">Step Back<kbd>←</kbd></button></li>
+              <li role="none"><button role="menuitem" data-cmd="step_fwd" type="button">Step Forward<kbd>→</kbd></button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="fusion">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Fusion</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="gotoPage" data-page="fusion" type="button">Open Fusion Page</button></li>
+              <li role="none"><button role="menuitem" data-cmd="add_node" type="button">Add Node<kbd>A</kbd></button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="color">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Color</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="gotoPage" data-page="color" type="button">Open Color Page</button></li>
+              <li role="none"><button role="menuitem" data-cmd="add_node" type="button">Add Serial Node<kbd>A</kbd></button></li>
+              <li role="none"><button role="menuitem" data-cmd="add_parallel" type="button">Add Parallel Node<kbd>⇧A</kbd></button></li>
+              <li class="menu-sep" role="separator"></li>
+              <li role="none"><button role="menuitem" data-cmd="auto_balance" type="button">Auto Balance</button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="fairlight">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Fairlight</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="gotoPage" data-page="fairlight" type="button">Open Fairlight Page</button></li>
+              <li role="none"><button role="menuitem" data-cmd="normalize_audio" type="button">Normalize Levels</button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="workspace">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Workspace</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="layout_color" type="button">Color Layout</button></li>
+              <li role="none"><button role="menuitem" data-cmd="layout_edit" type="button">Edit Layout</button></li>
+              <li role="none"><button role="menuitem" data-cmd="layout_media" type="button">Media Layout</button></li>
+            </ul>
+          </div>
+          <div class="menu" data-menu="help">
+            <button class="menu-title" type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Help</button>
+            <ul class="menu-items" role="menu">
+              <li role="none"><button role="menuitem" data-cmd="shortcuts" type="button">Keyboard Shortcuts</button></li>
+              <li role="none"><button role="menuitem" data-cmd="about" type="button">About</button></li>
+            </ul>
+          </div>
+        </div>
+        <div class="menubar-right">
+          <span class="menubar-stat" id="menubar-project">Untitled Project</span>
+        </div>
+      </header>
+
+      <!-- ============================================================== -->
+      <!-- Page switcher                                                   -->
+      <!-- ============================================================== -->
+      <nav id="page-switcher" class="page-switcher" role="tablist" aria-label="Pages">
+        <button class="page-btn" type="button" role="tab" data-page="media" aria-selected="false" title="Media">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 9h18M3 15h18M9 5v14M15 5v14"/></svg>
+          <span>Media</span>
+        </button>
+        <button class="page-btn" type="button" role="tab" data-page="cut" aria-selected="false" title="Cut">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="12" height="10" rx="1.5"/><path d="M15 12h6.5M18 9l3.5 3-3.5 3"/></svg>
+          <span>Cut</span>
+        </button>
+        <button class="page-btn" type="button" role="tab" data-page="edit" aria-selected="false" title="Edit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="8" height="5" rx="1"/><rect x="13.5" y="13" width="8" height="5" rx="1"/><path d="M10.5 8.5h3v7"/></svg>
+          <span>Edit</span>
+        </button>
+        <button class="page-btn" type="button" role="tab" data-page="fusion" aria-selected="false" title="Fusion">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="7" r="2.4"/><circle cx="6" cy="17" r="2.4"/><circle cx="18" cy="12" r="2.4"/><path d="M8.4 7H14a2 2 0 0 1 2 2v1.5M8.4 17H14a2 2 0 0 0 2-2v-1.5"/></svg>
+          <span>Fusion</span>
+        </button>
+        <button class="page-btn" type="button" role="tab" data-page="color" aria-selected="true" title="Color">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="9.5" r="1.5"/><circle cx="15" cy="9.5" r="1.5"/><circle cx="9" cy="15" r="1.5"/><circle cx="15" cy="15" r="1.5"/></svg>
+          <span>Color</span>
+        </button>
+        <button class="page-btn" type="button" role="tab" data-page="fairlight" aria-selected="false" title="Fairlight">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>
+          <span>Fairlight</span>
+        </button>
+        <button class="page-btn" type="button" role="tab" data-page="deliver" aria-selected="false" title="Deliver">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16.5 12 4l9 12.5z"/><path d="M8 16.5V21h8v-4.5"/></svg>
+          <span>Deliver</span>
+        </button>
+      </nav>
+
+      <!-- ============================================================== -->
+      <!-- Workspace (CSS grid, relaid out per data-page)                   -->
+      <!-- ============================================================== -->
+      <main id="workspace" class="workspace" data-page="color">
+        <!-- ---------------------------- media pool ------------------- -->
+        <section id="media-pool" class="panel media-pool" data-panel="media-pool" aria-label="Media pool">
+          <div class="panel-head">
+            <span class="panel-title">Media Pool</span>
+            <div class="panel-tools">
+              <button class="icon-btn" type="button" data-action="import" title="Import media (⌘I)">＋</button>
+              <button class="icon-btn" type="button" data-action="new-bin" title="New bin">🗀</button>
+              <span class="panel-badge" data-count="clips" id="clip-count">0</span>
+            </div>
+          </div>
+          <div class="media-body">
+            <div class="bin-pane">
+              <div class="bin-pane-head">Bins</div>
+              <ul id="bin-tree" class="bin-tree" role="tree" aria-label="Bins"></ul>
+            </div>
+            <div class="clip-pane">
+              <div class="bin-pane-head">
+                <span id="clip-pane-title">Master</span>
+                <span class="view-toggle">
+                  <button class="icon-btn is-on" type="button" data-view="grid" title="Grid view">▦</button>
+                  <button class="icon-btn" type="button" data-view="list" title="List view">☰</button>
+                </span>
+              </div>
+              <div id="clip-grid" class="clip-grid" data-dropzone="media-pool" data-drop-active="0" role="listbox" aria-label="Clips"></div>
+            </div>
+          </div>
+          <input id="file-input" type="file" accept="video/*,image/*" multiple hidden />
+        </section>
+
+        <!-- ---------------------------- viewer ----------------------- -->
+        <section id="viewer-area" class="panel viewer-area" data-panel="viewer" aria-label="Viewer">
+          <div class="panel-head">
+            <span class="panel-title">Viewer</span>
+            <div class="panel-tools viewer-tools">
+              <span class="tc" id="viewer-tc" data-tc="viewer">00:00:00:00</span>
+              <button class="icon-btn" type="button" data-viewer-mode="fit" title="Fit to window">FIT</button>
+              <button class="icon-btn" type="button" data-viewer-mode="100" title="Actual size">1:1</button>
+            </div>
+          </div>
+          <div class="viewer-stage" id="viewer-stage">
+            <canvas id="viewer" class="viewer-canvas" width="1920" height="1080" data-target="pipeline"></canvas>
+            <div class="viewer-grid" aria-hidden="true"></div>
+            <div class="viewer-msg" id="viewer-msg">No media — drop a file on the Media Pool</div>
+          </div>
+          <div class="transport" id="transport" role="group" aria-label="Transport">
+            <button class="icon-btn" type="button" data-transport="home" title="Go to start">⏮</button>
+            <button class="icon-btn" type="button" data-transport="step_back" title="Step back (←)">◀|</button>
+            <button class="icon-btn" type="button" data-transport="play" title="Play (Space)">▶</button>
+            <button class="icon-btn" type="button" data-transport="step_fwd" title="Step forward (→)">|▶</button>
+            <button class="icon-btn" type="button" data-transport="end" title="Go to end">⏭</button>
+            <button class="icon-btn" type="button" data-transport="loop" title="Loop in/out" aria-pressed="true">⟲</button>
+            <span class="tc" id="transport-tc" data-tc="transport">00:00:00:00</span>
+          </div>
+          <video id="decode-video" class="decode-video" playsinline muted preload="auto" aria-hidden="true"></video>
+        </section>
+
+        <!-- ---------------------------- scopes ----------------------- -->
+        <section id="scopes" class="panel scopes" data-panel="scopes" aria-label="Scopes">
+          <div class="panel-head">
+            <span class="panel-title">Scopes</span>
+            <div class="panel-tools">
+              <button class="icon-btn" type="button" data-scope-config="waveform" title="Waveform settings">⚙</button>
+            </div>
+          </div>
+          <div class="scope-grid">
+            <figure class="scope" data-scope-fig="waveform">
+              <canvas class="scope-canvas" data-scope="waveform" width="256" height="160"></canvas>
+              <figcaption>Waveform</figcaption>
+            </figure>
+            <figure class="scope" data-scope-fig="parade">
+              <canvas class="scope-canvas" data-scope="parade" width="256" height="160"></canvas>
+              <figcaption>RGB Parade</figcaption>
+            </figure>
+            <figure class="scope" data-scope-fig="vectorscope">
+              <canvas class="scope-canvas" data-scope="vectorscope" width="180" height="180"></canvas>
+              <figcaption>Vectorscope</figcaption>
+            </figure>
+            <figure class="scope" data-scope-fig="histogram">
+              <canvas class="scope-canvas" data-scope="histogram" width="256" height="160"></canvas>
+              <figcaption>Histogram</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <!-- ---------------------------- node editor ------------------- -->
+        <section id="node-editor" class="panel node-editor" data-panel="nodes" aria-label="Node editor">
+          <div class="panel-head">
+            <span class="panel-title">Nodes</span>
+            <div class="panel-tools">
+              <button class="icon-btn" type="button" data-node-cmd="add" title="Add serial node (A)">＋</button>
+              <button class="icon-btn" type="button" data-node-cmd="parallel" title="Add parallel node (⇧A)">∥</button>
+              <button class="icon-btn" type="button" data-node-cmd="serial" title="Make serial">⇢</button>
+              <button class="icon-btn" type="button" data-node-cmd="bypass" title="Bypass">◐</button>
+              <button class="icon-btn" type="button" data-node-cmd="delete" title="Delete">🗑</button>
+              <span class="spacer"></span>
+              <select class="mini-select" id="node-layout" data-bind-ui="node.layout" aria-label="Node layout">
+                <option value="horizontal">Horizontal</option>
+                <option value="vertical">Vertical</option>
+                <option value="top">Top</option>
+                <option value="auto">Auto</option>
+              </select>
+            </div>
+          </div>
+          <div class="node-stage" id="node-stage">
+            <canvas id="nodes" class="node-canvas" width="900" height="260"></canvas>
+            <div id="node-layer" class="node-layer" data-layer="nodes"></div>
+          </div>
+          <div id="node-palette" class="node-palette" aria-label="Node palette"></div>
+        </section>
+
+        <!-- ---------------------------- control panels --------------- -->
+        <section id="panels" class="panel panels" data-panel="controls" aria-label="Color controls">
+          <div class="panel-head">
+            <span class="panel-title" id="panel-target">Node 01</span>
+            <div class="panel-tools">
+              <button class="icon-btn" type="button" data-action="reset-grade" title="Reset grade">⟲</button>
+              <button class="icon-btn" type="button" data-action="auto-balance" title="Auto balance">✦</button>
+            </div>
+          </div>
+          <div class="panel-scroll">
+
+            <!-- primaries -->
+            <details class="cp" data-panel="primaries" open>
+              <summary class="cp-head">
+                <span class="cp-chevron" aria-hidden="true">▸</span>
+                <span class="cp-title">Primaries</span>
+                <span class="cp-hint" data-bind="primary.lift">0.00 · 1.00 · 1.00</span>
+              </summary>
+              <div class="cp-body">
+                <div class="wheels" role="group" aria-label="Colour wheels">
+                  <figure class="wheel" data-wheel="lift">
+                    <canvas class="wheel-canvas" data-wheel-canvas="lift" data-bind="primary.lift" width="96" height="96" aria-label="Lift wheel"></canvas>
+                    <figcaption>Lift</figcaption>
+                    <div class="wheel-readout">
+                      <input class="num" type="number" data-control="number" data-bind="primary.lift.0" step="0.01" min="-1" max="1" value="0" aria-label="Lift R" />
+                      <input class="num" type="number" data-control="number" data-bind="primary.lift.1" step="0.01" min="-1" max="1" value="0" aria-label="Lift G" />
+                      <input class="num" type="number" data-control="number" data-bind="primary.lift.2" step="0.01" min="-1" max="1" value="0" aria-label="Lift B" />
+                    </div>
+                  </figure>
+                  <figure class="wheel" data-wheel="gamma">
+                    <canvas class="wheel-canvas" data-wheel-canvas="gamma" data-bind="primary.gamma" width="96" height="96" aria-label="Gamma wheel"></canvas>
+                    <figcaption>Gamma</figcaption>
+                    <div class="wheel-readout">
+                      <input class="num" type="number" data-control="number" data-bind="primary.gamma.0" step="0.01" min="-1" max="1" value="1" aria-label="Gamma R" />
+                      <input class="num" type="number" data-control="number" data-bind="primary.gamma.1" step="0.01" min="-1" max="1" value="1" aria-label="Gamma G" />
+                      <input class="num" type="number" data-control="number" data-bind="primary.gamma.2" step="0.01" min="-1" max="1" value="1" aria-label="Gamma B" />
+                    </div>
+                  </figure>
+                  <figure class="wheel" data-wheel="gain">
+                    <canvas class="wheel-canvas" data-wheel-canvas="gain" data-bind="primary.gain" width="96" height="96" aria-label="Gain wheel"></canvas>
+                    <figcaption>Gain</figcaption>
+                    <div class="wheel-readout">
+                      <input class="num" type="number" data-control="number" data-bind="primary.gain.0" step="0.01" min="0" max="2" value="1" aria-label="Gain R" />
+                      <input class="num" type="number" data-control="number" data-bind="primary.gain.1" step="0.01" min="0" max="2" value="1" aria-label="Gain G" />
+                      <input class="num" type="number" data-control="number" data-bind="primary.gain.2" step="0.01" min="0" max="2" value="1" aria-label="Gain B" />
+                    </div>
+                  </figure>
+                </div>
+
+                <div class="ctl-list" data-group="primary">
+                  <label class="ctl" data-ctl="contrast"><span class="ctl-label">Contrast</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.contrast" min="0.5" max="1.5" step="0.001" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.contrast" step="0.001" min="0.5" max="1.5" value="1" /></label>
+                  <label class="ctl" data-ctl="pivot"><span class="ctl-label">Pivot</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.pivot" min="0.1" max="0.9" step="0.001" value="0.435" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.pivot" step="0.001" min="0.1" max="0.9" value="0.435" /></label>
+                  <label class="ctl" data-ctl="brightness"><span class="ctl-label">Brightness</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.brightness" min="-0.5" max="0.5" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.brightness" step="0.001" min="-0.5" max="0.5" value="0" /></label>
+                  <label class="ctl" data-ctl="saturation"><span class="ctl-label">Saturation</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.saturation" min="0" max="2" step="0.001" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.saturation" step="0.001" min="0" max="2" value="1" /></label>
+                  <label class="ctl" data-ctl="hue"><span class="ctl-label">Hue</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.hue" min="-180" max="180" step="0.1" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.hue" step="0.1" min="-180" max="180" value="0" /></label>
+                  <label class="ctl" data-ctl="vibrance"><span class="ctl-label">Vibrance</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.vibrance" min="-1" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.vibrance" step="0.001" min="-1" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="colourBoost"><span class="ctl-label">Colour Boost</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.colourBoost" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.colourBoost" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="contrastLow"><span class="ctl-label">Contrast Low</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.contrastLow" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.contrastLow" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="contrastHigh"><span class="ctl-label">Contrast High</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.contrastHigh" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.contrastHigh" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="shadowBias"><span class="ctl-label">Shadow Bias</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.shadowBias" min="-0.5" max="0.5" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.shadowBias" step="0.001" min="-0.5" max="0.5" value="0" /></label>
+                  <label class="ctl" data-ctl="highlightBias"><span class="ctl-label">Highlight Bias</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.highlightBias" min="-0.5" max="0.5" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.highlightBias" step="0.001" min="-0.5" max="0.5" value="0" /></label>
+                  <label class="ctl" data-ctl="temperature"><span class="ctl-label">Temperature</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.temperature" min="-100" max="100" step="0.1" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.temperature" step="0.1" min="-100" max="100" value="0" /></label>
+                  <label class="ctl" data-ctl="tint"><span class="ctl-label">Tint</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.tint" min="-100" max="100" step="0.1" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.tint" step="0.1" min="-100" max="100" value="0" /></label>
+                  <label class="ctl" data-ctl="offset"><span class="ctl-label">Offset</span><input class="ctl-range" type="range" data-control="slider" data-bind="primary.offset.0" min="-1" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="primary.offset.0" step="0.001" min="-1" max="1" value="0" /></label>
+                </div>
+              </div>
+            </details>
+
+            <!-- curves -->
+            <details class="cp" data-panel="curves">
+              <summary class="cp-head">
+                <span class="cp-chevron" aria-hidden="true">▸</span>
+                <span class="cp-title">Curves</span>
+                <span class="cp-hint" data-bind="curves.mode">custom</span>
+              </summary>
+              <div class="cp-body">
+                <div class="curve-row" role="group" aria-label="Curves">
+                  <figure class="curve" data-curve="master">
+                    <canvas class="curve-canvas" data-curve-canvas="master" data-bind="curves.master" width="120" height="120" aria-label="Master curve"></canvas>
+                    <figcaption>Y</figcaption>
+                  </figure>
+                  <figure class="curve" data-curve="red">
+                    <canvas class="curve-canvas" data-curve-canvas="red" data-bind="curves.red" width="120" height="120" aria-label="Red curve"></canvas>
+                    <figcaption>R</figcaption>
+                  </figure>
+                  <figure class="curve" data-curve="green">
+                    <canvas class="curve-canvas" data-curve-canvas="green" data-bind="curves.green" width="120" height="120" aria-label="Green curve"></canvas>
+                    <figcaption>G</figcaption>
+                  </figure>
+                  <figure class="curve" data-curve="blue">
+                    <canvas class="curve-canvas" data-curve-canvas="blue" data-bind="curves.blue" width="120" height="120" aria-label="Blue curve"></canvas>
+                    <figcaption>B</figcaption>
+                  </figure>
+                </div>
+                <div class="ctl-list" data-group="curves">
+                  <label class="ctl ctl--inline"><span class="ctl-label">Mode</span><select class="mini-select" data-control="select" data-bind="curves.mode"><option value="custom">Custom</option><option value="preset">Preset</option></select></label>
+                </div>
+              </div>
+            </details>
+
+            <!-- qualifier -->
+            <details class="cp" data-panel="qualifier">
+              <summary class="cp-head">
+                <span class="cp-chevron" aria-hidden="true">▸</span>
+                <span class="cp-title">Qualifier</span>
+                <span class="cp-hint" data-bind="qualifier.enabled">off</span>
+              </summary>
+              <div class="cp-body">
+                <div class="ctl-list" data-group="qualifier">
+                  <label class="ctl ctl--check"><span class="ctl-label">Enable</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind="qualifier.enabled" /></label>
+                  <label class="ctl ctl--inline"><span class="ctl-label">View</span><select class="mini-select" data-control="select" data-bind="qualifier.view"><option value="no-key">No Key</option><option value="matte">Matte</option><option value="overlay">Overlay</option></select></label>
+                  <label class="ctl" data-ctl="hue"><span class="ctl-label">Hue</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.hue" min="0" max="1" step="0.001" value="0.35" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.hue" step="0.001" min="0" max="1" value="0.35" /></label>
+                  <label class="ctl" data-ctl="hueWidth"><span class="ctl-label">Hue Width</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.hueWidth" min="0" max="0.5" step="0.001" value="0.12" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.hueWidth" step="0.001" min="0" max="0.5" value="0.12" /></label>
+                  <label class="ctl" data-ctl="hueSoft"><span class="ctl-label">Hue Soft</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.hueSoft" min="0" max="0.5" step="0.001" value="0.05" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.hueSoft" step="0.001" min="0" max="0.5" value="0.05" /></label>
+                  <label class="ctl" data-ctl="satLow"><span class="ctl-label">Sat Low</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.satLow" min="0" max="1" step="0.001" value="0.15" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.satLow" step="0.001" min="0" max="1" value="0.15" /></label>
+                  <label class="ctl" data-ctl="satHigh"><span class="ctl-label">Sat High</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.satHigh" min="0" max="1" step="0.001" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.satHigh" step="0.001" min="0" max="1" value="1" /></label>
+                  <label class="ctl" data-ctl="lumLow"><span class="ctl-label">Lum Low</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.lumLow" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.lumLow" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="lumHigh"><span class="ctl-label">Lum High</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.lumHigh" min="0" max="1" step="0.001" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.lumHigh" step="0.001" min="0" max="1" value="1" /></label>
+                  <label class="ctl" data-ctl="balance"><span class="ctl-label">Balance</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.balance" min="-1" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.balance" step="0.001" min="-1" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="desaturateOutside"><span class="ctl-label">Desat Outside</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.desaturateOutside" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.desaturateOutside" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="denoise"><span class="ctl-label">Denoise</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.denoise" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.denoise" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="matteBlur"><span class="ctl-label">Matte Blur</span><input class="ctl-range" type="range" data-control="slider" data-bind="qualifier.matteBlur" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="qualifier.matteBlur" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl ctl--check"><span class="ctl-label">Invert</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind="qualifier.invert" /></label>
+                  <label class="ctl ctl--check"><span class="ctl-label">Window Restrict</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind="qualifier.windowRestrict" /></label>
+                </div>
+              </div>
+            </details>
+
+            <!-- key -->
+            <details class="cp" data-panel="key">
+              <summary class="cp-head">
+                <span class="cp-chevron" aria-hidden="true">▸</span>
+                <span class="cp-title">Key</span>
+                <span class="cp-hint" data-bind="key.enabled">off</span>
+              </summary>
+              <div class="cp-body">
+                <div class="ctl-list" data-group="key">
+                  <label class="ctl ctl--check"><span class="ctl-label">Enable</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind="key.enabled" /></label>
+                  <label class="ctl ctl--inline"><span class="ctl-label">Fill</span><select class="mini-select" data-control="select" data-bind="key.fillMode"><option value="over">Over</option><option value="fill">Fill</option><option value="edge">Edge</option></select></label>
+                  <label class="ctl" data-ctl="keyColor"><span class="ctl-label">Key Colour</span><input class="ctl-color" type="color" data-control="color" data-bind="key.keyColor" value="#00ff00" /><input class="ctl-num" type="number" data-control="number" data-bind="key.keyColor.0" step="0.001" min="0" max="1" value="0" aria-label="Key R" /></label>
+                  <label class="ctl" data-ctl="tolerance"><span class="ctl-label">Tolerance</span><input class="ctl-range" type="range" data-control="slider" data-bind="key.tolerance" min="0" max="1" step="0.001" value="0.3" /><input class="ctl-num" type="number" data-control="number" data-bind="key.tolerance" step="0.001" min="0" max="1" value="0.3" /></label>
+                  <label class="ctl" data-ctl="softness"><span class="ctl-label">Softness</span><input class="ctl-range" type="range" data-control="slider" data-bind="key.softness" min="0" max="1" step="0.001" value="0.1" /><input class="ctl-num" type="number" data-control="number" data-bind="key.softness" step="0.001" min="0" max="1" value="0.1" /></label>
+                  <label class="ctl" data-ctl="spill"><span class="ctl-label">Spill</span><input class="ctl-range" type="range" data-control="slider" data-bind="key.spill" min="0" max="1" step="0.001" value="0.5" /><input class="ctl-num" type="number" data-control="number" data-bind="key.spill" step="0.001" min="0" max="1" value="0.5" /></label>
+                  <label class="ctl" data-ctl="edge"><span class="ctl-label">Edge</span><input class="ctl-range" type="range" data-control="slider" data-bind="key.edge" min="0" max="1" step="0.001" value="0.1" /><input class="ctl-num" type="number" data-control="number" data-bind="key.edge" step="0.001" min="0" max="1" value="0.1" /></label>
+                  <label class="ctl" data-ctl="shrinkGrow"><span class="ctl-label">Shrink / Grow</span><input class="ctl-range" type="range" data-control="slider" data-bind="key.shrinkGrow" min="-1" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="key.shrinkGrow" step="0.001" min="-1" max="1" value="0" /></label>
+                </div>
+              </div>
+            </details>
+
+            <!-- window -->
+            <details class="cp" data-panel="window">
+              <summary class="cp-head">
+                <span class="cp-chevron" aria-hidden="true">▸</span>
+                <span class="cp-title">Window</span>
+                <span class="cp-hint" data-bind="window.enabled">off</span>
+              </summary>
+              <div class="cp-body">
+                <div class="ctl-list" data-group="window">
+                  <label class="ctl ctl--check"><span class="ctl-label">Enable</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind="window.enabled" /></label>
+                  <label class="ctl ctl--inline"><span class="ctl-label">Shape</span><select class="mini-select" data-control="select" data-bind="window.shape"><option value="ellipse">Ellipse</option><option value="rectangle">Rectangle</option><option value="linear">Linear</option><option value="poly">Polygon</option><option value="none">None</option></select></label>
+                  <label class="ctl" data-ctl="cx"><span class="ctl-label">Centre X</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.cx" min="0" max="1" step="0.001" value="0.5" /><input class="ctl-num" type="number" data-control="number" data-bind="window.cx" step="0.001" min="0" max="1" value="0.5" /></label>
+                  <label class="ctl" data-ctl="cy"><span class="ctl-label">Centre Y</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.cy" min="0" max="1" step="0.001" value="0.5" /><input class="ctl-num" type="number" data-control="number" data-bind="window.cy" step="0.001" min="0" max="1" value="0.5" /></label>
+                  <label class="ctl" data-ctl="w"><span class="ctl-label">Width</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.w" min="0" max="1" step="0.001" value="0.4" /><input class="ctl-num" type="number" data-control="number" data-bind="window.w" step="0.001" min="0" max="1" value="0.4" /></label>
+                  <label class="ctl" data-ctl="h"><span class="ctl-label">Height</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.h" min="0" max="1" step="0.001" value="0.4" /><input class="ctl-num" type="number" data-control="number" data-bind="window.h" step="0.001" min="0" max="1" value="0.4" /></label>
+                  <label class="ctl" data-ctl="angle"><span class="ctl-label">Angle</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.angle" min="-180" max="180" step="0.1" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="window.angle" step="0.1" min="-180" max="180" value="0" /></label>
+                  <label class="ctl" data-ctl="softness"><span class="ctl-label">Softness</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.softness" min="0" max="1" step="0.001" value="0.1" /><input class="ctl-num" type="number" data-control="number" data-bind="window.softness" step="0.001" min="0" max="1" value="0.1" /></label>
+                  <label class="ctl" data-ctl="feather"><span class="ctl-label">Feather</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.feather" min="0" max="1" step="0.001" value="0.05" /><input class="ctl-num" type="number" data-control="number" data-bind="window.feather" step="0.001" min="0" max="1" value="0.05" /></label>
+                  <label class="ctl" data-ctl="mix"><span class="ctl-label">Mix</span><input class="ctl-range" type="range" data-control="slider" data-bind="window.mix" min="0" max="1" step="0.001" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="window.mix" step="0.001" min="0" max="1" value="1" /></label>
+                  <label class="ctl ctl--check"><span class="ctl-label">Invert</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind="window.invert" /></label>
+                </div>
+              </div>
+            </details>
+
+            <!-- effects -->
+            <details class="cp" data-panel="effects">
+              <summary class="cp-head">
+                <span class="cp-chevron" aria-hidden="true">▸</span>
+                <span class="cp-title">Effects</span>
+                <span class="cp-hint" data-bind="effects.lut">no LUT</span>
+              </summary>
+              <div class="cp-body">
+                <div class="ctl-list" data-group="effects">
+                  <label class="ctl" data-ctl="blur"><span class="ctl-label">Blur</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.blur" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.blur" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="sharpen"><span class="ctl-label">Sharpen</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.sharpen" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.sharpen" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="sharpenRadius"><span class="ctl-label">Sharpen Radius</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.sharpenRadius" min="0.5" max="3" step="0.01" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.sharpenRadius" step="0.01" min="0.5" max="3" value="1" /></label>
+                  <label class="ctl" data-ctl="glow"><span class="ctl-label">Glow</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.glow" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.glow" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="glowThreshold"><span class="ctl-label">Glow Threshold</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.glowThreshold" min="0" max="1" step="0.001" value="0.8" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.glowThreshold" step="0.001" min="0" max="1" value="0.8" /></label>
+                  <label class="ctl" data-ctl="vignette"><span class="ctl-label">Vignette</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.vignette" min="-1" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.vignette" step="0.001" min="-1" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="vignetteSoft"><span class="ctl-label">Vignette Soft</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.vignetteSoft" min="0" max="1" step="0.001" value="0.5" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.vignetteSoft" step="0.001" min="0" max="1" value="0.5" /></label>
+                  <label class="ctl" data-ctl="grain"><span class="ctl-label">Grain</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.grain" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.grain" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="filmContrast"><span class="ctl-label">Film Contrast</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.filmContrast" min="0" max="1" step="0.001" value="0" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.filmContrast" step="0.001" min="0" max="1" value="0" /></label>
+                  <label class="ctl" data-ctl="lutIntensity"><span class="ctl-label">LUT Mix</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.lutIntensity" min="0" max="1" step="0.001" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.lutIntensity" step="0.001" min="0" max="1" value="1" /></label>
+                  <label class="ctl" data-ctl="cdlSat"><span class="ctl-label">CDL Sat</span><input class="ctl-range" type="range" data-control="slider" data-bind="effects.cdl.sat" min="0" max="2" step="0.001" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="effects.cdl.sat" step="0.001" min="0" max="2" value="1" /></label>
+                </div>
+              </div>
+            </details>
+
+            <!-- node-level gammas -->
+            <details class="cp" data-panel="node">
+              <summary class="cp-head">
+                <span class="cp-chevron" aria-hidden="true">▸</span>
+                <span class="cp-title">Node</span>
+                <span class="cp-hint" data-bind="inputGamma">1.00 / 1.00</span>
+              </summary>
+              <div class="cp-body">
+                <div class="ctl-list" data-group="node">
+                  <label class="ctl" data-ctl="inputGamma"><span class="ctl-label">Input Gamma</span><input class="ctl-range" type="range" data-control="slider" data-bind="inputGamma" min="0.1" max="10" step="0.01" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="inputGamma" step="0.01" min="0.1" max="10" value="1" /></label>
+                  <label class="ctl" data-ctl="outputGamma"><span class="ctl-label">Output Gamma</span><input class="ctl-range" type="range" data-control="slider" data-bind="outputGamma" min="0.1" max="10" step="0.01" value="1" /><input class="ctl-num" type="number" data-control="number" data-bind="outputGamma" step="0.01" min="0.1" max="10" value="1" /></label>
+                  <label class="ctl ctl--check"><span class="ctl-label">Bypass</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind-ui="node.bypass" /></label>
+                  <label class="ctl ctl--check"><span class="ctl-label">Enabled</span><input class="ctl-check" type="checkbox" data-control="toggle" data-bind-ui="node.enabled" /></label>
+                </div>
+              </div>
+            </details>
+
+          </div>
+        </section>
+      </main>
+
+      <!-- ============================================================== -->
+      <!-- Timeline                                                        -->
+      <!-- ============================================================== -->
+      <section id="timeline" class="timeline" data-panel="timeline" aria-label="Timeline">
+        <div class="timeline-head">
+          <div class="timeline-tools">
+            <button class="icon-btn" type="button" data-tl-cmd="snap" aria-pressed="true" title="Snapping">⇔</button>
+            <button class="icon-btn" type="button" data-tl-cmd="link" aria-pressed="true" title="Link selection">⛓</button>
+            <span class="tc" id="timeline-tc" data-tc="timeline">00:00:00:00</span>
+          </div>
+          <div class="timeline-right">
+            <label class="zoom-ctl" for="zoom">
+              <span>Zoom</span>
+              <input id="zoom" class="ctl-range ctl-range--wide" type="range" data-zoom min="8" max="600" step="1" value="72" />
+            </label>
+          </div>
+        </div>
+        <div class="timeline-body">
+          <div id="track-headers" class="track-headers" role="rowheader"></div>
+          <div id="track-scroll" class="track-scroll" data-dropzone="timeline">
+            <div id="ruler" class="ruler" data-ruler="frames"></div>
+            <div id="track-lanes" class="track-lanes" role="presentation"></div>
+            <div id="playhead" class="playhead" data-playhead="0" style="--playhead-x: 0px"></div>
+            <div id="in-marker" class="marker marker--in" data-marker="in" title="In point"></div>
+            <div id="out-marker" class="marker marker--out" data-marker="out" title="Out point"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- Status bar                                                      -->
+      <!-- ============================================================== -->
+      <footer id="statusbar" class="statusbar" role="status" aria-live="off">
+        <span class="sb-item" data-status="page">Page <b id="status-page">Color</b></span>
+        <span class="sb-item" data-status="playhead">Frame <b id="status-playhead">0</b></span>
+        <span class="sb-sep"></span>
+        <span class="sb-item" data-status="node">Node <b id="status-node">01</b></span>
+        <span class="sb-item" data-status="space">Space <b id="status-space">timeline-linear</b></span>
+        <span class="sb-sep"></span>
+        <span class="sb-item" data-status="precision">Precision <b id="status-precision">—</b></span>
+        <span class="sb-item" data-status="fps">FPS <b id="status-fps">0.0</b></span>
+        <span class="sb-item" data-status="res">Res <b id="status-res">—</b></span>
+        <span class="sb-spacer"></span>
+        <span class="sb-item" data-status="hint">Press <kbd>`</kbd> for the agent console</span>
+      </footer>
+
+      <!-- ============================================================== -->
+      <!-- Agent console drawer                                            -->
+      <!-- ============================================================== -->
+      <aside id="agent-console" class="agent-console" data-open="0" aria-label="Agent console" hidden>
+        <div class="agent-head">
+          <span class="agent-title">Agent Console</span>
+          <span class="agent-count" id="agent-count">0</span>
+          <span class="spacer"></span>
+          <button class="icon-btn" type="button" data-action="clear-log" title="Clear log">🗑</button>
+          <button class="icon-btn" type="button" data-action="close-console" title="Close (`)">✕</button>
+        </div>
+        <pre id="agent-log" class="agent-log" role="log" aria-live="polite"></pre>
+        <form id="agent-form" class="agent-form">
+          <input id="agent-input" class="agent-input" type="text" autocomplete="off" spellcheck="false"
+                 placeholder='{"cmd":"gotoPage","page":"color"}' aria-label="Agent command" />
+          <button class="icon-btn" type="submit" title="Run">↵</button>
+        </form>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

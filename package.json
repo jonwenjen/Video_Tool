@@ -1,0 +1,27 @@
+{
+  "name": "hermes-resolve",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A Resolve-style colour grading NLE in the browser, drivable by Hermes.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "serve": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "agent": "node server/server.mjs",
+    "fixtures": "node test/fixtures/make-images.mjs",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "mp4-muxer": "^5.2.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3",
+    "vitest": "^2.1.9"
+  }
+}
