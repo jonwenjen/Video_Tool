@@ -483,6 +483,15 @@ function capabilities(): Record<string, unknown> {
     viewerCanvas: !!canvas,
     viewerSize: canvas ? { width: canvas.width, height: canvas.height } : null,
     mediaRecorder: typeof MediaRecorder !== 'undefined',
+    // The app's log lives only in the DOM, so a boot failure inside a real
+    // browser was invisible to the agent: `hasPipeline: false` said the GPU
+    // was missing but not WHY. Reading the log tail turns that into an
+    // actionable message instead of a mystery.
+    logTail: (() => {
+      const el = document.querySelector('#agent-log');
+      const text = (el?.textContent ?? '').trim();
+      return text ? text.split('\n').slice(-8) : [];
+    })(),
     userAgent: navigator.userAgent,
     url: location.href,
   };
