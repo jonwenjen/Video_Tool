@@ -9,3 +9,6 @@ test-results/
 
 # test artefacts
 out/
+
+# generated fixtures served to the app
+public/test/

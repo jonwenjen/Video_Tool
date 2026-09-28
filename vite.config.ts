@@ -26,12 +26,20 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    // The E2E tests import media over HTTP from this origin, so the fixtures
+    // have to be part of the served output. Without this, vite's SPA fallback
+    // answers /test/fixtures/cast.png with index.html and a 200: every test
+    // silently imported an HTML document as a picture, decoded nothing, and
+    // asserted against a black frame. publicDir is the mechanism; the fixture
+    // script writes there as well as into test/fixtures.
+    assetsDir: 'assets',
     rollupOptions: {
       output: {
         manualChunks: undefined,
       },
     },
   },
+  publicDir: 'public',
   worker: {
     format: 'es',
   },

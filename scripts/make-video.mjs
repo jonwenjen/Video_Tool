@@ -48,6 +48,13 @@ try {
   mkdirSync(dir, { recursive: true });
   const out = join(dir, 'probe.mp4');
   writeFileSync(out, buf);
+  // Also under public/ so `vite build` copies it into dist. The playback test
+  // imports it over HTTP from the served origin, and vite's SPA fallback
+  // answers a missing path with index.html and a 200 — the test then "plays"
+  // an HTML document.
+  const pub = join(ROOT, 'public', 'test', 'fixtures');
+  mkdirSync(pub, { recursive: true });
+  writeFileSync(join(pub, 'probe.mp4'), buf);
   console.log(`[make-video] wrote ${out} — ${video.bytes} bytes, ${video.width}x${video.height}, ${video.frames} frames @ ${video.fps}fps`);
 } finally {
   if (browser) browser.closeBrowser();

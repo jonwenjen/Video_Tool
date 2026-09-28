@@ -16,6 +16,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { launchChrome } from './cdp-client.mjs';
+import { fetchFixture } from './fixture-guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.PLAYBACK_PORT ?? 4180);
@@ -65,6 +66,7 @@ try {
   await browser.eval('for (let i=0;i<100 && !document.querySelector(\'[data-ready="1"]\');i++) await new Promise(r=>setTimeout(r,100)); return 1;');
 
   console.log('\n=== import a real video ===');
+  await fetchFixture(browser, '/test/fixtures/probe.mp4', { ftypAt4: true });
   const imported = await browser.eval(`
     const a = window.__resolve;
     const blob = await (await fetch('/test/fixtures/probe.mp4')).blob();

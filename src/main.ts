@@ -754,24 +754,41 @@ async function probeMedia(file: File, url: string): Promise<MediaClip> {
   };
 
   if (isImage) {
-    await new Promise<void>((res) => {
+    // A file that will not decode must NOT silently keep the 1920x1080
+    // defaults. The SPA fallback answers any unknown URL with index.html and
+    // a 200, so a typo'd fixture path arrives here as "an image" that is
+    // really an HTML document; accepting it produces a black viewer and every
+    // downstream grade looks like a no-op.
+    const decoded = await new Promise<{ w: number; h: number; thumb?: string } | null>((res) => {
       const img = new Image();
+      const done = (v: { w: number; h: number; thumb?: string } | null) => res(v);
       img.onload = () => {
-        base.width = img.naturalWidth || 1920;
-        base.height = img.naturalHeight || 1080;
-        base.durationFrames = DEFAULT_FPS * 5;
+        if (!img.naturalWidth || !img.naturalHeight) { done(null); return; }
+        let thumb: string | undefined;
         try {
           const c = document.createElement('canvas');
           c.width = 160;
-          c.height = Math.max(1, Math.round((160 * base.height) / base.width));
+          c.height = Math.max(1, Math.round((160 * img.naturalHeight) / img.naturalWidth));
           c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height);
-          base.thumbnail = c.toDataURL('image/jpeg', 0.6);
+          thumb = c.toDataURL('image/jpeg', 0.6);
         } catch { /* tainted or zero-size canvas — skip the poster */ }
-        res();
+        done({ w: img.naturalWidth, h: img.naturalHeight, thumb });
       };
-      img.onerror = () => res();
+      img.onerror = () => done(null);
       img.src = url;
     });
+
+    if (!decoded) {
+      throw new Error(
+        `${name}: not a decodable image (${file.size} bytes, type "${file.type || 'unknown'}") — `
+        + 'if this came over HTTP, check the path is really the file and not the SPA fallback page',
+      );
+    }
+
+    base.width = decoded.w;
+    base.height = decoded.h;
+    if (decoded.thumb) base.thumbnail = decoded.thumb;
+    base.durationFrames = DEFAULT_FPS * 5;
     return base;
   }
 
@@ -1675,28 +1692,108 @@ function wireCurveDrag(): void {
   for (const canvas of qsa<HTMLCanvasElement>('[data-curve-canvas]')) {
     const channel = canvas.dataset.curveCanvas!;
     const path = `curves.${channel}`;
-    canvas.addEventListener('pointerdown', (e) => {
+    const IDENTITY: CurvePts = [{ x: 0, y: 0 }, { x: 1, y: 1 }];
+
+    const toCurve = (e: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
-      const nx = (e.clientX - r.left) / r.width;
-      const ny = 1 - (e.clientY - r.top) / r.height;
-      const pts = structuredClone((getParam(path) ?? []) as CurvePts);
-      // Endpoints are fixed — the identity points must stay put.
-      let nearest = -1;
-      let best = Infinity;
-      for (let i = 1; i < pts.length - 1; i += 1) {
-        const d = Math.hypot(pts[i]!.x - nx, pts[i]!.y - ny);
-        if (d < best) { best = d; nearest = i; }
+      return {
+        x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+        y: Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height)),
+      };
+    };
+
+    const read = (): CurvePts => {
+      const v = getParam(path);
+      return Array.isArray(v) && v.length >= 2 ? (structuredClone(v) as CurvePts) : structuredClone(IDENTITY);
+    };
+
+    // Nearest point by GRAPH distance, not by pixels: a 120x120 canvas holding
+    // a full 0..1 curve means a fixed pixel radius is a wildly different
+    // sensitivity in the middle of the curve than at the corners.
+    const nearest = (pts: CurvePts, x: number, y: number, radius: number) => {
+      let idx = -1;
+      let best = radius;
+      for (let i = 0; i < pts.length; i += 1) {
+        const d = Math.hypot(pts[i]!.x - x, pts[i]!.y - y);
+        if (d < best) { best = d; idx = i; }
       }
-      if (best < 0.08) {
-        pts.splice(nearest, 0, { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) });
+      return idx;
+    };
+
+    let dragIndex = -1;
+
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      const { x, y } = toCurve(e);
+      const pts = read();
+      const hit = nearest(pts, x, y, 0.06);
+
+      // Alt/right click removes an interior point; a curve cannot have fewer
+      // than its two endpoints.
+      if ((e.altKey || e.button === 2) && hit > 0 && hit < pts.length - 1) {
+        pts.splice(hit, 1);
+        setParam(path, pts);
+        drawCurves();
+        return;
+      }
+
+      if (hit >= 0) {
+        dragIndex = hit;
       } else {
-        pts[nearest] = { x: Math.max(0, Math.min(1, nx)), y: Math.max(0, Math.min(1, ny)) };
+        // Insert. The previous version only searched interior points, so on a
+        // fresh two-point curve `nearest` stayed -1 and the assignment wrote a
+        // property literally named "-1" onto the array: clicking a curve did
+        // nothing at all, which is the least discoverable possible failure.
+        const at = { x, y };
+        let i = 0;
+        while (i < pts.length && pts[i]!.x < x) i += 1;
+        pts.splice(i, 0, at);
+        dragIndex = i;
+        // Keep at least one point clear of each endpoint so the new point is
+        // actually reachable by the mouse afterwards.
+        if (i > 0) pts[i]!.x = Math.max(pts[i - 1]!.x + 0.01, x);
+        if (i < pts.length - 1) pts[i]!.x = Math.min(pts[i + 1]!.x - 0.01, pts[i]!.x);
       }
-      pts.sort((a, b) => a.x - b.x);
       setParam(path, pts);
+      drawCurves();
     });
+
+    // Dragging is the interaction every NLE curve editor is built around; a
+    // click-only editor cannot shape a curve at all.
+    canvas.addEventListener('pointermove', (e) => {
+      if (dragIndex < 0) return;
+      e.preventDefault();
+      const pts = read();
+      if (dragIndex >= pts.length) return;
+      const { x, y } = toCurve(e);
+      const isFirst = dragIndex === 0;
+      const isLast = dragIndex === pts.length - 1;
+      // Endpoints keep their x: the curve must still span 0..1, which is what
+      // makes black stay black and white stay white.
+      const nx = isFirst ? 0 : isLast ? 1 : Math.max(0.01, Math.min(0.99, x));
+      pts[dragIndex] = { x: nx, y };
+      if (!isFirst && !isLast) {
+        const lo = pts[dragIndex - 1]!.x + 0.01;
+        const hi = pts[dragIndex + 1]!.x - 0.01;
+        pts[dragIndex]!.x = Math.max(lo, Math.min(hi, nx));
+      }
+      setParam(path, pts);
+      drawCurves();
+    });
+
+    const release = (e: PointerEvent) => {
+      if (dragIndex < 0) return;
+      dragIndex = -1;
+      try { canvas.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    };
+    canvas.addEventListener('pointerup', release);
+    canvas.addEventListener('pointercancel', release);
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
     canvas.addEventListener('dblclick', () => {
-      setParam(path, [{ x: 0, y: 0 }, { x: 1, y: 1 }]);
+      setParam(path, structuredClone(IDENTITY));
+      drawCurves();
     });
   }
 }

@@ -22,6 +22,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { launchChrome } from './cdp-client.mjs';
+import { fetchFixture } from './fixture-guard.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = Number(process.env.VERIFY_PORT ?? 4178);
@@ -159,6 +160,7 @@ check('exactly one browser client', health.clients === 1, `clients=${health.clie
 // ---------------------------------------------------------------------------
 // 6. Load media through the agent
 // ---------------------------------------------------------------------------
+await fetchFixture(browser, '/test/fixtures/cast.png', { magicHex: '89504e47' });
 const loaded = await ev(`
   const a = window.__resolve;
   const blob = await (await fetch('/test/fixtures/cast.png')).blob();

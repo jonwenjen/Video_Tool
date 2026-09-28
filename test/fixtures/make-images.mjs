@@ -13,8 +13,15 @@ import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+// Fixtures are written twice on purpose: once where the tests read them, and
+// once under public/ so `vite build` copies them into dist. The E2E tests
+// import media over HTTP from the served origin; without the public copy the
+// SPA fallback answers the fixture URL with index.html and a 200, and the whole
+// suite silently grades a black frame.
 const OUT = join(dirname(fileURLToPath(import.meta.url)));
+const PUBLIC_OUT = join(dirname(dirname(OUT)), 'public', 'test', 'fixtures');
 mkdirSync(OUT, { recursive: true });
+mkdirSync(PUBLIC_OUT, { recursive: true });
 
 // --- minimal PNG encoder ----------------------------------------------------
 
@@ -149,6 +156,8 @@ const files = [
 
 for (const [name, data] of files) {
   const p = join(OUT, name);
-  writeFileSync(p, encodePNG(data, W, H));
+  const bytes = encodePNG(data, W, H);
+  writeFileSync(p, bytes);
+  writeFileSync(join(PUBLIC_OUT, name), bytes);
   console.log('wrote', p, W + 'x' + H);
 }
