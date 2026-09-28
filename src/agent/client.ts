@@ -61,6 +61,10 @@ export interface ResolveApi {
   setPlayhead?(frame: number): unknown;
   play?(): unknown;
   pause?(): unknown;
+  stepPlayhead?(frames: number): unknown;
+  setLoop?(enabled: boolean): unknown;
+  setIn?(frame: number): unknown;
+  setOut?(frame: number): unknown;
   gotoPage?(page: string): unknown;
   addNode?(opts?: Record<string, unknown>): unknown;
   setParam?(id: string, path: string, value: unknown): unknown;
@@ -169,6 +173,12 @@ const SPECS: Record<string, Record<string, FieldSpec>> = {
   set_node_param: { id: { type: 'string' }, path: { type: 'string', required: true }, value: { type: 'any', required: true } },
   set_grade: { id: { type: 'string' }, grade: { type: 'object', required: true } },
   auto_balance: { id: { type: 'string' }, method: { type: 'enum', values: ['neutral', 'white-balance'] } },
+  goto_timecode: { timecode: { type: 'string', required: true } },
+  play: NO_PARAMS,
+  pause: NO_PARAMS,
+  step_playhead: { frames: { type: 'integer', required: true } },
+  set_loop: { enabled: { type: 'boolean' } },
+  set_range: { in: { type: 'integer' }, out: { type: 'integer' } },
   analyze_frame: { frame: { type: 'integer' } },
   get_scopes: NO_PARAMS,
   read_pixel: { x: { type: 'number', required: true }, y: { type: 'number', required: true }, frame: { type: 'integer' } },
@@ -203,6 +213,51 @@ const isRGBArray = (v: unknown): v is [number, number, number] => {
     return typeof n === 'number' && Number.isFinite(n);
   });
 };
+
+
+/**
+ * Parse an NLE timecode into a frame number.
+ *
+ * Accepts HH:MM:SS:FF, MM:SS:FF and SS:FF, with the frame field counted in
+ * frames rather than a hundredths-of-a-second field — the SMPTE convention
+ * every NLE uses, and the one that makes 00:00:01:12 mean frame 36 at 24fps
+ * rather than 1.12 seconds. Returns null rather than guessing, so a typo is an
+ * error the agent can see instead of a silent jump to the wrong frame.
+ */
+function parseTimecode(tc: string, fps: number): number | null {
+  const parts = tc.split(':').map((p) => p.trim());
+  if (parts.some((p) => p === '' || !/^\d+$/.test(p))) return null;
+  const n = parts.map((p) => Number(p));
+  if (parts.length === 4) {
+    const [h, m, s, f] = n;
+    if (m > 59 || s > 59 || f >= Math.ceil(fps)) return null;
+    return ((h * 60 + m) * 60 + s) * fps + f;
+  }
+  if (parts.length === 3) {
+    const [m, s, f] = n;
+    if (s > 59 || f >= Math.ceil(fps)) return null;
+    return (m * 60 + s) * fps + f;
+  }
+  if (parts.length === 2) {
+    const [s, f] = n;
+    if (f >= Math.ceil(fps)) return null;
+    return s * fps + f;
+  }
+  return null;
+}
+
+/** Format a frame number back to HH:MM:SS:FF, for echoing to the agent. */
+function formatTimecode(frame: number, fps: number): string {
+  const f = Math.max(0, Math.round(frame));
+  const fpsI = Math.max(1, Math.round(fps));
+  const ff = f % fpsI;
+  const total = Math.floor(f / fpsI);
+  const ss = total % 60;
+  const mm = Math.floor(total / 60) % 60;
+  const hh = Math.floor(total / 3600);
+  const p2 = (v: number) => String(v).padStart(2, '0');
+  return `${p2(hh)}:${p2(mm)}:${p2(ss)}:${p2(ff)}`;
+}
 
 /** Reads an RGB triple as a real array, whichever shape it arrived in. */
 function toRGB(v: unknown): [number, number, number] {
@@ -936,6 +991,78 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
         };
       }),
     };
+  },
+
+  // ---- transport --------------------------------------------------------
+  // The agent had no way to start or stop playback, only to place the playhead.
+  // Scrubbing without a transport means "play" is the one thing a grading
+  // session cannot do — you cannot check that a keyframe lands where you think.
+  play: () => {
+    const a = needApp('play');
+    const started = a.play?.() === true;
+    const s = a.getState?.() as { playing?: boolean; playhead?: number; durationFrames?: number } | undefined;
+    if (!started) {
+      throw new CommandError('playback did not start — the timeline has no range to play', 'empty_timeline');
+    }
+    return { playing: s?.playing ?? true, playhead: s?.playhead ?? null, durationFrames: s?.durationFrames ?? null };
+  },
+
+  pause: () => {
+    const a = needApp('pause');
+    a.pause?.();
+    const s = a.getState?.() as { playing?: boolean; playhead?: number } | undefined;
+    return { playing: s?.playing ?? false, playhead: s?.playhead ?? null };
+  },
+
+  step_playhead: ({ params }) => {
+    const a = needApp('step_playhead');
+    const frames = Math.trunc(Number(params.frames ?? 1));
+    if (!Number.isFinite(frames) || frames === 0) {
+      throw new CommandError(`frames must be a non-zero number, got ${String(params.frames)}`, 'bad_request');
+    }
+    a.pause?.();
+    a.setPlayhead?.((a.getState?.() as { playhead?: number } | undefined)?.playhead ?? 0);
+    // stepPlayhead is the app's own single-step path, so a step lands exactly
+    // where the transport would put it.
+    const moved = a.stepPlayhead?.(frames);
+    const s = a.getState?.() as { playhead?: number } | undefined;
+    return { frames, playhead: s?.playhead ?? null, stepped: moved ?? null };
+  },
+
+  set_loop: ({ params }) => {
+    const a = needApp('set_loop');
+    const enabled = params.enabled === undefined ? true : Boolean(params.enabled);
+    a.setLoop?.(enabled);
+    return { loop: enabled };
+  },
+
+  set_range: ({ params }) => {
+    const a = needApp('set_range');
+    const s = a.getState?.() as { inPoint?: number; outPoint?: number; durationFrames?: number } | undefined;
+    if (params.in !== undefined) a.setIn?.(Math.trunc(Number(params.in)));
+    if (params.out !== undefined) a.setOut?.(Math.trunc(Number(params.out)));
+    const after = a.getState?.() as { inPoint?: number; outPoint?: number } | undefined;
+    return {
+      in: after?.inPoint ?? s?.inPoint ?? 0,
+      out: after?.outPoint ?? s?.outPoint ?? 0,
+      durationFrames: after?.outPoint ?? s?.durationFrames ?? 0,
+    };
+  },
+
+  goto_timecode: ({ params }) => {
+    const a = needApp('goto_timecode');
+    const tc = String(params.timecode ?? '').trim();
+    const fps = Number((a.project.timeline as { fps?: number } | undefined)?.fps ?? 24) || 24;
+    const frame = parseTimecode(tc, fps);
+    if (frame === null) {
+      throw new CommandError(
+        `could not read "${tc}" — use HH:MM:SS:FF or SS:FF (the frame rate is ${fps})`,
+        'bad_timecode',
+      );
+    }
+    a.setPlayhead?.(frame);
+    const s = a.getState?.() as { playhead?: number } | undefined;
+    return { timecode: tc, frame, playhead: s?.playhead ?? null, fps };
   },
 
   // ---- timeline -------------------------------------------------------

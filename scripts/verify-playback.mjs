@@ -133,6 +133,20 @@ try {
   check('rendered pixels change during playback', play.distinctPixels >= 3,
     `${play.distinctPixels}/13 samples differed from frame 0; means=${play.frameMeans.slice(0, 5).join(' ')}`);
 
+  console.log('\n=== agent transport commands ===');
+  const tc = await browser.eval(`
+    const a = window.__resolve;
+    const out = {};
+    a.setPlayhead(0);
+    await new Promise(r => setTimeout(r, 200));
+    out.stepFwd = a.stepPlayhead ? 'exposed' : 'missing';
+    if (a.stepPlayhead) { a.stepPlayhead(24); await new Promise(r => setTimeout(r, 200)); out.afterStep = a.getState().playhead; }
+    if (a.setLoop) out.loop = a.setLoop(false);
+    return out;
+  `);
+  check('app exposes stepPlayhead', tc.stepFwd === 'exposed', '');
+  if (tc.afterStep !== undefined) check('one step of 24 lands on frame 24', Math.round(tc.afterStep) === 24, `playhead=${tc.afterStep}`);
+
   console.log('\n=== pause stops it ===');
   const paused = await browser.eval(`
     const a = window.__resolve;

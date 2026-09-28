@@ -629,6 +629,13 @@ function pause(): boolean {
   return false;
 }
 
+/** Loop is a project-level transport flag, so the agent can toggle it. */
+function setLoop(enabled: boolean): boolean {
+  state.loop = enabled !== false;
+  app.dataset.loop = state.loop ? '1' : '0';
+  return state.loop;
+}
+
 /** Single entry point for play/pause. Video sync is owned here so neither
  *  play() nor pause() can re-enter the other. */
 function togglePlay(force?: boolean): boolean {
@@ -2353,6 +2360,8 @@ export interface ResolveAgentApi {
   split(): boolean;
   setIn(): number;
   setOut(): number;
+  stepPlayhead(frames: number): number;
+  setLoop(enabled: boolean): boolean;
   getParam(path: string, nodeId?: string): unknown;
   readPixel(x: number, y: number): ArrayLike<number> | null;
   saveProject(path?: string): boolean;
@@ -2432,6 +2441,8 @@ const api: ResolveAgentApi = {
   split,
   setIn,
   setOut,
+  stepPlayhead,
+  setLoop,
   getParam,
   readPixel,
   saveProject,

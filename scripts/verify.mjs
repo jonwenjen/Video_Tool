@@ -307,6 +307,12 @@ for (const [cmd, params] of [
   ['keyframe', { path: 'primary.saturation', frame: 5, value: 1.4 }],
   ['set_page', { page: 'color' }],
   ['set_playhead', { frame: 12 }],
+  ['goto_timecode', { timecode: '00:00:01:12' }],
+  ['play', {}],
+  ['pause', {}],
+  ['step_playhead', { frames: 5 }],
+  ['set_loop', { enabled: true }],
+  ['set_range', { in: 0, out: 60 }],
 ]) {
   const r = await rpc(cmd, params);
   check(`rpc ${cmd}`, r.ok === true, r.ok ? '' : JSON.stringify(r.error).slice(0, 130));

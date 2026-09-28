@@ -350,6 +350,12 @@ export interface AgentCommandMap {
   list_media: Record<string, never>;
   list_timeline: Record<string, never>;
   set_playhead: { frame: number };
+  goto_timecode: { timecode: string };
+  play: Record<string, never>;
+  pause: Record<string, never>;
+  step_playhead: { frames: number };
+  set_loop: { enabled: boolean };
+  set_range: { in?: number; out?: number };
   set_page: { page: PageId };
   add_node: { label?: string; kind?: NodeKind; after?: string };
   remove_node: { id: string };
