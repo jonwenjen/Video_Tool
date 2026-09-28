@@ -6,3 +6,6 @@ out/
 .vite/
 .agent-out/
 test-results/
+
+# test artefacts
+out/

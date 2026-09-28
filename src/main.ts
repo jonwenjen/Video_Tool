@@ -570,7 +570,21 @@ function saveProject(path?: string): boolean {
 function timelineDuration(): number {
   const { durationFrames, outPoint, clips } = project.timeline;
   const clipEnd = clips.reduce((m, c) => Math.max(m, c.start + (c.outFrame - c.inFrame)), 0);
-  return Math.max(durationFrames, outPoint, clipEnd, 1);
+  const explicit = Math.max(durationFrames, outPoint, clipEnd);
+  if (explicit > 0) return explicit;
+  // An empty timeline used to bottom out at `1`, which made "nothing loaded"
+  // indistinguishable from "a one-frame clip": the viewer showed the selected
+  // clip, Play was pressed, and the playhead wrapped 00:00 -> 00:01 forever.
+  // Fall back to the clip actually on screen, so a single imported file plays.
+  const sel = state.selectedClipId ? mediaById(state.selectedClipId) : null;
+  const still = sel?.kind === 'image' ? Math.max(1, Math.round(project.timeline.fps * 5)) : 0;
+  return Math.max(sel?.durationFrames ?? 0, still);
+}
+
+/** True when there is genuinely nothing to play, so Play can say so. */
+function playbackIsEmpty(): boolean {
+  return timelineDuration() <= 1 && project.timeline.clips.length === 0
+    && !(state.selectedClipId && mediaById(state.selectedClipId)?.durationFrames);
 }
 
 function setPlayhead(frame: number, opts: { seek?: boolean } = {}): number {
@@ -588,6 +602,12 @@ function stepPlayhead(delta: number): number {
 
 function play(): boolean {
   if (state.playing) return true;
+  if (playbackIsEmpty()) {
+    // Say what is wrong instead of spinning the playhead on a zero-length
+    // timeline, which reads as a broken player rather than an empty project.
+    log('nothing to play — import a clip first', 'warn');
+    return false;
+  }
   state.playing = true;
   app.dataset.playing = '1';
   const btn = qo<HTMLButtonElement>('[data-transport="play"]');
@@ -808,7 +828,18 @@ async function importFiles(files: File[] | FileList): Promise<MediaClip[]> {
     log(`imported ${added.length} clip${added.length > 1 ? 's' : ''}: ${added.map((a) => a.name).join(', ')}`, 'ok');
   }
   renderMediaPool();
-  if (added[0]) selectClip(added[0].id);
+  if (added[0]) {
+    selectClip(added[0].id);
+    // Drop the first import onto the timeline. Resolve does not do this, but it
+    // does have a clip on V1 the moment you open a project, and without it the
+    // Edit page is empty and Play has nothing to play — the symptom being a
+    // playhead that wraps 00:00 -> 00:01 on a zero-length timeline.
+    if (project.timeline.clips.length === 0) {
+      const track = project.timeline.tracks.find((t) => t.kind === 'video')
+        ?? project.timeline.tracks[0];
+      if (track) appendToTrack(track.id, added[0].id, 0);
+    }
+  }
   syncAll();
   return added;
 }
@@ -1879,16 +1910,35 @@ function frame(now: number): void {
 function advancePlayback(dt: number): void {
   const tl = project.timeline;
   const total = timelineDuration();
-  let next = tl.playhead + dt * tl.fps;
   const lo = tl.outPoint > tl.inPoint ? tl.inPoint : 0;
   const hi = tl.outPoint > tl.inPoint ? tl.outPoint : total;
+
+  // A playing <video> owns its own clock. Following the element beats
+  // re-seeking it every frame: a seek per rAF cancels the decoder's own
+  // pipeline, so the picture stalls on one frame while the playhead runs.
+  const mediaDriven = decodeVideo.src !== '' && !decodeVideo.paused && !decodeVideo.ended
+    && decodeVideo.readyState >= 2;
+  let next: number;
+  if (mediaDriven) {
+    next = Math.round(decodeVideo.currentTime * tl.fps);
+  } else {
+    next = tl.playhead + dt * tl.fps;
+  }
+
   if (next >= hi) {
-    if (state.loop) next = lo;
-    else { next = hi; pause(); }
+    if (state.loop) {
+      next = lo;
+      if (decodeVideo.src) { try { decodeVideo.currentTime = lo / tl.fps; } catch { /* not seekable yet */ } }
+    } else {
+      next = hi;
+      pause();
+      toggleVideo(false);
+    }
   }
   tl.playhead = next;
   updatePlayheadDom();
-  seekVideo(next);
+  // Only drive the element when it is NOT the clock source.
+  if (!mediaDriven) seekVideo(next);
 }
 
 function paintViewer(): void {
@@ -2425,10 +2475,13 @@ function main(): void {
   });
   window.addEventListener('beforeunload', () => pipeline?.dispose?.());
 
-  // A fresh project has no clip yet, so there is no source to size from.
-  // Without this the canvas keeps the 300x150 default and the agent's first
-  // read_pixel lands outside the frame.
-  updateStatusRes(viewerCanvas.clientWidth || 960, viewerCanvas.clientHeight || 540);
+  // A fresh project has no clip yet, so there is no source to size from — but
+  // the fallback must be the PROJECT resolution, never the window size. Sizing
+  // the drawing buffer from clientWidth gave a 3840x2160 buffer for a 480x320
+  // clip, so the picture sat in a letterbox and every agent probe aimed at the
+  // black border instead of the image. CSS scales the element to fit; the
+  // backing store stays 1:1 with the frame so coordinates mean something.
+  updateStatusRes(1920, 1080);
 
   app.dataset.ready = '1';
   log('hermes-resolve ready — press ` for the agent console', 'ok');

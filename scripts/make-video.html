@@ -1,0 +1,73 @@
+<!doctype html>
+<!--
+  Generates a short H.264 test clip with WebCodecs + mp4-muxer, then hands the
+  bytes back as base64. There is no ffmpeg on this machine, and a still image
+  cannot exercise the <video> decode path that playback actually depends on, so
+  the fixture has to be a real encoded video.
+-->
+<html>
+  <body>
+    <pre id="out">working…</pre>
+    <script type="module">
+      import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+
+      const W = 320, H = 240, FPS = 24, SECONDS = 3;
+      const el = document.getElementById('out');
+
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+
+      const muxer = new Muxer({
+        target: new ArrayBufferTarget(),
+        video: { codec: 'avc', width: W, height: H },
+        fastStart: 'in-memory',
+      });
+
+      const encoder = new VideoEncoder({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        error: (e) => { el.textContent = 'encoder error: ' + e; },
+      });
+      encoder.configure({
+        codec: 'avc1.42001f',
+        width: W, height: H,
+        bitrate: 2_000_000,
+        framerate: FPS,
+        avc: { format: 'avc' },
+      });
+
+      // A moving bar plus a burned-in frame counter: motion proves the decoder
+      // is advancing, and the counter proves which frame is on screen.
+      const total = FPS * SECONDS;
+      for (let f = 0; f < total; f++) {
+        ctx.fillStyle = '#101820';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = `hsl(${f * 12} 80% 55%)`;
+        const x = (f / total) * (W - 40);
+        ctx.fillRect(x, 80, 40, 80);
+        ctx.fillStyle = '#fff';
+        ctx.font = '28px monospace';
+        ctx.fillText(String(f).padStart(3, '0'), 12, 40);
+        const frame = new VideoFrame(canvas, { timestamp: Math.round((f * 1e6) / FPS) });
+        encoder.encode(frame, { keyFrame: f % FPS === 0 });
+        frame.close();
+        if (encoder.encodeQueueSize > 8) {
+          await new Promise((r) => setEncoderDrain(r));
+        }
+      }
+      function setEncoderDrain(r) { encoder.addEventListener('dequeue', () => r(), { once: true }); }
+      await encoder.flush();
+      encoder.close();
+      muxer.finalize();
+
+      const bytes = new Uint8Array(muxer.target.buffer);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      const b64 = btoa(bin);
+      el.textContent = 'ok ' + bytes.length;
+      window.__video = { base64: b64, bytes: bytes.length, width: W, height: H, fps: FPS, frames: total };
+    </script>
+  </body>
+</html>

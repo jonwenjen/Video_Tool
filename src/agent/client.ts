@@ -23,6 +23,7 @@ import {
   type ClientHello,
   type Envelope,
 } from './protocol.js';
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 // ---------------------------------------------------------------------------
 // Structural interfaces for surfaces owned by other workstreams
@@ -855,34 +856,64 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     return { id, path, alreadyOpen: false, mediaCount: pool.length };
   },
 
-  import_media: ({ params }) => {
+  import_media: async ({ params }) => {
     const a = needApp('import_media');
-    const paths = params.paths as string[];
+    const paths = (params.paths as string[] | undefined) ?? [];
     const pool = (a.project.mediaPool ??= []);
     const bins = (a.project.bins ?? []) as { id: string; clipIds: string[] }[];
     const bin = str(params, 'binId') ? bins.find((b) => b.id === str(params, 'binId')) : undefined;
-    const added: { id: string; path: string }[] = [];
-    const skipped: string[] = [];
 
+    const added: { id: string; path: string; width: number; height: number; frames: number }[] = [];
+    const skipped: string[] = [];
+    const failed: { path: string; error: string }[] = [];
+
+    // Fetch the bytes and hand them to the app's real import path.
+    //
+    // The previous version pushed a pool entry with width/height/durationFrames
+    // all zero and never loaded anything, so an agent that imported by path got
+    // a phantom clip that could never become a renderable source — and
+    // list_media cheerfully reported the zeros back as if they were facts.
+    // Going through importFiles means the same probe and decode run as a drag
+    // and drop, and the reported dimensions are measured rather than invented.
+    const files: File[] = [];
+    const order: string[] = [];
     for (const path of paths) {
-      if (pool.some((m) => (m as { src?: string }).src === path)) {
-        skipped.push(path);
-        continue;
+      if (pool.some((m) => (m as { src?: string }).src === path)) { skipped.push(path); continue; }
+      const url = /^https?:\/\//i.test(path) ? path : new URL(path, location.href).href;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        files.push(new File([blob], path.split('/').pop() ?? path, { type: blob.type }));
+        order.push(path);
+      } catch (err) {
+        failed.push({ path, error: err instanceof Error ? err.message : String(err) });
       }
-      const id = `media-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      pool.push({
-        id,
-        name: path.split('/').pop() ?? path,
-        src: path,
-        durationFrames: 0,
-        fps: 24,
-        width: 0,
-        height: 0,
-        kind: /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(path) ? 'image' : 'video',
-        attrs: {},
+    }
+
+    let clips: unknown[] = [];
+    if (files.length > 0 && typeof a.importFiles === 'function') {
+      clips = (await a.importFiles(files)) ?? [];
+    }
+
+    (clips as { id?: string; name?: string; width?: number; height?: number; durationFrames?: number }[])
+      .forEach((clip, n) => {
+        const src = order[n] ?? clip.name ?? '';
+        if (bin && clip.id) bin.clipIds.push(clip.id);
+        added.push({
+          id: clip.id ?? '',
+          path: src,
+          width: clip.width ?? 0,
+          height: clip.height ?? 0,
+          frames: clip.durationFrames ?? 0,
+        });
       });
-      bin?.clipIds.push(id);
-      added.push({ id, path });
+
+    if (failed.length > 0) {
+      throw new CommandError(
+        `could not read ${failed.map((f) => `${f.path} (${f.error})`).join(', ')}`,
+        'import_unreadable',
+      );
     }
     return { added, skipped, binId: bin?.id ?? null, mediaCount: pool.length };
   },
@@ -1036,12 +1067,16 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     const path = String(params.path);
     const value = coerceValue(params.value);
     const node = findNode(a, str(params, 'id'));
+
+    // Read the old value BEFORE applying, or `previous` reports the value that
+    // was just written and the agent can never tell what it changed.
+    const grade = (node.grade ??= {});
+    const before = getPath(grade, splitPath(path));
+
     a.setParam?.(node.id, path, value);
 
     // Apply locally too: setParam is optional on the surface, and the agent must
     // be able to grade even before the UI's own handlers are wired up.
-    const grade = (node.grade ??= {});
-    const before = getPath(grade, splitPath(path));
     setPath(grade, path, value);
     render();
     return { id: node.id, path, value, previous: before === undefined ? null : before };
@@ -1192,9 +1227,15 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     const x = Math.round(Number(params.x));
     const y = Math.round(Number(params.y));
     // maxSide 0 = full resolution, so the requested coordinate indexes the
-    // real frame rather than a downscaled proxy. The canvas path is the
-    // fallback because only the default framebuffer honours a 1x1 probe.
-    const pixels = grabPixels(0, true);
+    // real frame rather than a downscaled proxy.
+    //
+    // The PIPELINE is the source, not the canvas. The pipeline keeps the
+    // post-output-transform image in its own display framebuffer, so a probe
+    // is repeatable; the canvas path reads the default framebuffer, which GL
+    // is free to clear once the frame is composited — that returned a
+    // confident #000000 for a graded image. grabPixels still falls back to
+    // the canvas if the pipeline has no readback at all.
+    const pixels = grabPixels(0);
     if (!pixels) throw new CommandError('could not read pixels from the viewer', 'no_pixels');
 
     const index = (y * pixels.width + x) * 4;
@@ -1202,15 +1243,21 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
       throw new CommandError(`(${x}, ${y}) is outside the ${pixels.width}x${pixels.height} frame`, 'out_of_range');
     }
     const [r, g, b, alpha] = Array.from(pixels.data.slice(index, index + 4));
+    // The pipeline's readback is display-referred 0..1; the canvas fallback is
+    // 0..255 bytes. `toUnit` already normalises, and the hex must be built from
+    // the NORMALISED value — reading raw floats through toString(16) produced
+    // "#000.defcd0.48a009" for a perfectly ordinary mid-tone.
     const toUnit = (v: number) => (pixels.data instanceof Float32Array ? v : v / 255);
+    const rgba = [toUnit(r), toUnit(g), toUnit(b), toUnit(alpha)];
+    const byte = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255)));
     return {
       x,
       y,
       frame: num(params, 'frame') ?? null,
       source: pixels.source,
-      rgba: [toUnit(r), toUnit(g), toUnit(b), toUnit(alpha)],
+      rgba,
       raw: [r, g, b, alpha],
-      hex: `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`,
+      hex: `#${rgba.slice(0, 3).map((v) => byte(v).toString(16).padStart(2, '0')).join('')}`,
     };
   },
 
@@ -1234,53 +1281,158 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
 
   export_video: async ({ params, progress }) => {
     const a = needApp('export_video');
-    if (typeof MediaRecorder === 'undefined') {
-      throw new CommandError('MediaRecorder is unavailable in this browser, so export_video cannot run', 'unsupported');
+    const pipe = pipeline();
+    if (typeof VideoEncoder === 'undefined') {
+      throw new CommandError('WebCodecs VideoEncoder is unavailable, so export_video cannot run', 'unsupported');
     }
-    const canvas = findViewerCanvas();
-    if (!canvas) throw new CommandError('no viewer canvas found to export', 'no_canvas');
+    if (!pipe || typeof pipe.readPixels !== 'function') {
+      throw new CommandError('the pipeline exposes no frame readback, so frames cannot be exported', 'no_readback');
+    }
 
     const timeline = a.project.timeline as Record<string, unknown> | undefined;
-    const fps = Number(timeline?.fps ?? 24);
-    const start = Number(timeline?.inPoint ?? 0);
-    const end = Number(timeline?.outPoint ?? timeline?.durationFrames ?? 0);
-    const total = Math.max(1, end - start);
-    if (end <= start) {
+    const fps = Number(timeline?.fps ?? 24) || 24;
+    const startFrame = Number(timeline?.inPoint ?? 0);
+    const endFrame = Number(timeline?.outPoint ?? timeline?.durationFrames ?? 0);
+    if (!(endFrame > startFrame)) {
       throw new CommandError('the timeline has no range to export — add a clip and set in/out points first', 'empty_timeline');
     }
 
-    const codec = str(params, 'codec') ?? 'video/webm';
-    const stream = canvas.captureStream(fps);
-    const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(stream, { mimeType: codec, videoBitsPerSecond: 4_000_000 });
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
+    // Frame-accurate WebCodecs export.
+    //
+    // This used to drive canvas.captureStream() into a MediaRecorder, which was
+    // wrong four ways: Chrome has no 'avc' MediaRecorder type, so the command
+    // failed outright for H.264; capture is real-time, so a ten minute timeline
+    // took ten minutes; sampling the canvas at wall-clock rate is not
+    // frame-accurate; and a WebGL canvas without preserveDrawingBuffer reads
+    // back blank. Reading the pipeline's own display buffer and encoding
+    // explicit frames fixes all four and makes scrub-then-export exact.
+    const wanted = (str(params, 'codec') ?? 'avc').toLowerCase();
+    const CODECS: Record<string, { muxer: 'avc' | 'vp9' | 'av1'; encoder: string; label: string }> = {
+      avc: { muxer: 'avc', encoder: 'avc1.42001f', label: 'H.264' },
+      h264: { muxer: 'avc', encoder: 'avc1.42001f', label: 'H.264' },
+      'h.264': { muxer: 'avc', encoder: 'avc1.42001f', label: 'H.264' },
+      vp9: { muxer: 'vp9', encoder: 'vp09.00.10.08', label: 'VP9' },
+      av1: { muxer: 'av1', encoder: 'av01.0.04M.08', label: 'AV1' },
     };
-
-    const done = new Promise<void>((resolvePromise) => {
-      recorder.onstop = () => resolvePromise();
-    });
-    a.pause?.();
-    recorder.start(250);
-
-    for (let frame = start; frame < end; frame++) {
-      a.setPlayhead?.(frame);
-      render();
-      progress((frame - start) / total, `frame ${frame}/${end}`);
-      // Real-time capture: the stream samples the canvas, so the wall clock is
-      // the floor on how fast this can go.
-      await new Promise((r) => setTimeout(r, 1000 / fps));
+    if (/webm/i.test(wanted)) {
+      throw new CommandError('WebM output is not wired up; use avc, vp9 or av1 (MP4 container)', 'unsupported_codec');
+    }
+    const pick = CODECS[wanted];
+    if (!pick) {
+      throw new CommandError(`unsupported codec "${wanted}" — use avc, vp9 or av1 (output is MP4)`, 'unsupported_codec');
     }
 
-    progress(0.98, 'muxing');
-    recorder.stop();
-    await done;
-    stream.getTracks().forEach((t) => t.stop());
+    const w = Number(pipe.width) || 0;
+    const h = Number(pipe.height) || 0;
+    if (!(w > 0 && h > 0)) {
+      throw new CommandError('the pipeline has no render targets — load a clip before exporting', 'no_frame');
+    }
+    // avc requires even dimensions; a 241px-tall frame is a config error that
+    // otherwise surfaces as an opaque encoder failure much later.
+    const encW = w % 2 === 0 ? w : w - 1;
+    const encH = h % 2 === 0 ? h : h - 1;
 
-    const blob = new Blob(chunks, { type: codec });
-    const path = str(params, 'path') ?? 'export/grade.webm';
-    const written = await upload(path, blob);
-    return { ...written, frames: total, fps, codec, crf: num(params, 'crf') ?? null, type: codec };
+    const config: VideoEncoderConfig = {
+      codec: pick.encoder,
+      width: encW,
+      height: encH,
+      bitrate: 8_000_000,
+      framerate: fps,
+    };
+    if (pick.muxer === 'avc') {
+      (config as VideoEncoderConfig & { avc: { format: string } }).avc = { format: 'avc' };
+    }
+
+    const support = await VideoEncoder.isConfigSupported(config).catch(() => null);
+    if (!support?.supported) {
+      throw new CommandError(`this browser cannot encode ${pick.label} at ${encW}x${encH}`, 'unsupported_codec');
+    }
+
+    const muxer = new Muxer({
+      target: new ArrayBufferTarget(),
+      video: { codec: pick.muxer, width: encW, height: encH, frameRate: fps },
+      fastStart: 'in-memory',
+    });
+
+    let encodeError: Error | null = null;
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error: (e) => { encodeError = e instanceof Error ? e : new Error(String(e)); },
+    });
+    encoder.configure(config);
+
+    const wasPlaying = (a.getState?.() as { playing?: boolean } | undefined)?.playing === true;
+    a.pause?.();
+    const total = endFrame - startFrame;
+    const scratch = document.createElement('canvas');
+    scratch.width = encW;
+    scratch.height = encH;
+    const ctx = scratch.getContext('2d');
+    if (!ctx) throw new CommandError('no 2d context available to assemble frames', 'no_canvas');
+
+    try {
+      for (let f = startFrame; f < endFrame; f++) {
+        if (encodeError) throw encodeError;
+        a.setPlayhead?.(f);
+        await settleFrame();
+
+        // Read the graded output straight out of the pipeline's display buffer.
+        const raw = pipe.readPixels(0, 0, encW, encH) as ArrayLike<number> | null;
+        if (!raw || raw.length < encW * encH * 4) {
+          throw new CommandError(`frame ${f}: pipeline readback returned ${raw?.length ?? 0} floats`, 'short_read');
+        }
+        const img = new ImageData(encW, encH);
+        const dst = img.data;
+        for (let i = 0, n = encW * encH * 4; i < n; i++) {
+          const v = raw[i] ?? 0;
+          // Display-referred 0..1 floats. This is the first point where
+          // clamping is correct, so it happens here and nowhere else.
+          dst[i] = v <= 0 ? 0 : v >= 1 ? 255 : Math.round(v * 255);
+        }
+        ctx.putImageData(img, 0, 0);
+
+        const timestamp = Math.round(((f - startFrame) * 1e6) / fps);
+        const duration = Math.round(1e6 / fps);
+        const frame = new VideoFrame(scratch, { timestamp, duration });
+        encoder.encode(frame, { keyFrame: (f - startFrame) % Math.max(1, Math.round(fps * 2)) === 0 });
+        frame.close();
+
+        // Backpressure: without this a long timeline grows the queue until the
+        // tab runs out of memory.
+        let guard = 0;
+        while (encoder.encodeQueueSize > 8 && guard++ < 1000) {
+          await new Promise<void>((r) => encoder.addEventListener('dequeue', () => r(), { once: true }));
+        }
+        progress((f - startFrame + 1) / total, `frame ${f - startFrame + 1}/${total}`);
+      }
+
+      progress(0.97, 'flushing encoder');
+      await encoder.flush();
+      if (encodeError) throw encodeError;
+      encoder.close();
+      muxer.finalize();
+    } catch (err) {
+      try { if (encoder.state !== 'closed') encoder.close(); } catch { /* already closed */ }
+      throw err instanceof CommandError
+        ? err
+        : new CommandError(err instanceof Error ? err.message : String(err), 'encode_failed');
+    } finally {
+      if (wasPlaying) a.play?.();
+    }
+
+    const bytes = new Uint8Array(muxer.target.buffer);
+    const blob = new Blob([bytes], { type: 'video/mp4' });
+    const outPath = str(params, 'path') ?? `export/grade-${pick.muxer}.mp4`;
+    const written = await upload(outPath, blob);
+    return {
+      ...written,
+      frames: total,
+      fps,
+      width: encW,
+      height: encH,
+      codec: pick.label,
+      container: 'mp4',
+    };
   },
 
   screenshot: async ({ params, progress }) => {
