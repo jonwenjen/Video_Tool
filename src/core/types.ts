@@ -351,6 +351,10 @@ export interface AgentCommandMap {
   list_timeline: Record<string, never>;
   set_playhead: { frame: number };
   goto_timecode: { timecode: string };
+  split: { frame?: number };
+  append_to_track: { mediaId?: string; trackId?: string; atFrame?: number };
+  trim_to_playhead: { frame?: number };
+  set_clip_enabled: { clipId?: string; enabled?: boolean };
   play: Record<string, never>;
   pause: Record<string, never>;
   step_playhead: { frames: number };

@@ -315,6 +315,11 @@ for (const [cmd, params] of [
   ['step_playhead', { frames: 5 }],
   ['set_loop', { enabled: true }],
   ['set_range', { in: 0, out: 60 }],
+  ['append_to_track', {}],
+  ['set_clip_enabled', { enabled: false }],
+  ['set_clip_enabled', { enabled: true }],
+  ['trim_to_playhead', { frame: 20 }],
+  ['split', { frame: 30 }],
 ]) {
   const r = await rpc(cmd, params);
   check(`rpc ${cmd}`, r.ok === true, r.ok ? '' : JSON.stringify(r.error).slice(0, 130));

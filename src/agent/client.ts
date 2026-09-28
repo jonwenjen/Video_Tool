@@ -62,6 +62,10 @@ export interface ResolveApi {
   play?(): unknown;
   pause?(): unknown;
   stepPlayhead?(frames: number): unknown;
+  split?(): unknown;
+  trimToPlayhead?(): unknown;
+  setClipEnabled?(clipId: string, enabled: boolean): unknown;
+  appendToTrack?(trackId: string, mediaId: string, atFrame: number): unknown;
   setLoop?(enabled: boolean): unknown;
   setIn?(frame: number): unknown;
   setOut?(frame: number): unknown;
@@ -179,6 +183,10 @@ const SPECS: Record<string, Record<string, FieldSpec>> = {
   step_playhead: { frames: { type: 'integer', required: true } },
   set_loop: { enabled: { type: 'boolean' } },
   set_range: { in: { type: 'integer' }, out: { type: 'integer' } },
+  split: { frame: { type: 'integer' } },
+  append_to_track: { mediaId: { type: 'string' }, trackId: { type: 'string' }, atFrame: { type: 'integer' } },
+  trim_to_playhead: { frame: { type: 'integer' } },
+  set_clip_enabled: { clipId: { type: 'string' }, enabled: { type: 'boolean' } },
   analyze_frame: { frame: { type: 'integer' } },
   get_scopes: NO_PARAMS,
   read_pixel: { x: { type: 'number', required: true }, y: { type: 'number', required: true }, frame: { type: 'integer' } },
@@ -214,6 +222,25 @@ const isRGBArray = (v: unknown): v is [number, number, number] => {
   });
 };
 
+
+
+/**
+ * How many clips are on the timeline, for before/after assertions.
+ *
+ * getState() exposes these as top-level `tracks` and `timelineClips`, not
+ * nested under a `timeline` key — reading the wrong shape is how a helper
+ * silently reports "no clips" against a timeline that has one.
+ */
+function countClips(a: ResolveApi): number {
+  const s = a.getState?.() as { timelineClips?: unknown[] } | undefined;
+  return s?.timelineClips?.length ?? 0;
+}
+
+/** The first video track, which is where an agent append belongs by default. */
+function firstVideoTrack(a: ResolveApi): string | null {
+  const s = a.getState?.() as { tracks?: Array<{ id: string; kind?: string }> } | undefined;
+  return s?.tracks?.find((t) => t.kind === 'video')?.id ?? null;
+}
 
 /**
  * Parse an NLE timecode into a frame number.
@@ -991,6 +1018,67 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
         };
       }),
     };
+  },
+
+  // ---- edit page --------------------------------------------------------
+  // The app has had split()/appendToTrack() on its API surface all along, but
+  // no agent command reached them, so "cut" from the agent's side did not
+  // exist at all: an unknown_command error that reads exactly like a broken
+  // button. Editing is half of what a grade session needs, because you cut to
+  // a clip and then grade it.
+  split: ({ params }) => {
+    const a = needApp('split');
+    if (params.frame !== undefined) a.setPlayhead?.(Math.trunc(Number(params.frame)));
+    const s = a.getState?.() as { playhead?: number; selectedTimelineClipId?: string | null } | undefined;
+    const before = countClips(a);
+    const ok = a.split?.() === true;
+    if (!ok) {
+      throw new CommandError(
+        `nothing to cut at frame ${s?.playhead ?? '?'} — put the playhead inside a clip`,
+        'no_clip_under_playhead',
+      );
+    }
+    const after = countClips(a);
+    return {
+      playhead: s?.playhead ?? null,
+      clipsBefore: before,
+      clipsAfter: after,
+      split: after === before + 1,
+    };
+  },
+
+  append_to_track: ({ params }) => {
+    const a = needApp('append_to_track');
+    const state = a.getState?.() as { media?: Array<{ id: string; name?: string }> } | undefined;
+    const mediaId = params.mediaId ?? state?.media?.[0]?.id;
+    if (!mediaId) throw new CommandError('no media in the pool to append', 'empty_pool');
+    const trackId = params.trackId ?? firstVideoTrack(a);
+    if (!trackId) throw new CommandError('no video track on the timeline', 'no_track');
+    const at = params.atFrame === undefined ? 0 : Math.trunc(Number(params.atFrame));
+    const clip = a.appendToTrack?.(String(trackId), String(mediaId), at);
+    if (!clip) throw new CommandError(`could not append ${mediaId} to ${trackId}`, 'append_failed');
+    return { clip: jsonSafe(clip), clipCount: countClips(a) };
+  },
+
+  trim_to_playhead: ({ params }) => {
+    const a = needApp('trim_to_playhead');
+    if (params.frame !== undefined) a.setPlayhead?.(Math.trunc(Number(params.frame)));
+    const ok = a.trimToPlayhead?.() === true;
+    if (!ok) throw new CommandError('nothing to trim at the playhead', 'no_clip_under_playhead');
+    const s = a.getState?.() as { inPoint?: number; outPoint?: number } | undefined;
+    return { in: s?.inPoint ?? null, out: s?.outPoint ?? null, clips: countClips(a) };
+  },
+
+  set_clip_enabled: ({ params }) => {
+    const a = needApp('set_clip_enabled');
+    const s = a.getState?.() as { timelineClips?: Array<{ id: string; enabled?: boolean }> } | undefined;
+    const clips = s?.timelineClips ?? [];
+    const clip = params.clipId ? clips.find((c) => c.id === params.clipId) : clips.find((c) => c.enabled === false) ?? clips[0];
+    if (!clip) throw new CommandError('no clip to enable or disable', 'no_clip');
+    const enabled = params.enabled === undefined ? !clip.enabled : Boolean(params.enabled);
+    const ok = a.setClipEnabled?.(clip.id, enabled) === true;
+    if (!ok) throw new CommandError(`could not change ${clip.id}`, 'edit_failed');
+    return { clipId: clip.id, enabled, clips: countClips(a) };
   },
 
   // ---- transport --------------------------------------------------------

@@ -1233,6 +1233,19 @@ function appendToTrack(trackId: string, mediaId: string, atFrame: number): Timel
   return clip;
 }
 
+/**
+ * Enable/disable a timeline clip. A disabled clip stays on the timeline and
+ * keeps its media, which is how Resolve's enable toggle behaves and how an
+ * agent can A/B two grades of the same cut without re-importing anything.
+ */
+function setClipEnabled(clipId: string, enabled: boolean): boolean {
+  const clip = project.timeline.clips.find((c) => c.id === clipId);
+  if (!clip) return false;
+  mutate('setClipEnabled', () => { clip.enabled = enabled !== false; });
+  renderTimeline();
+  return true;
+}
+
 /** Split the selected clip (or the clip under the playhead) at the playhead. */
 function split(): boolean {
   const ph = project.timeline.playhead;
@@ -2455,6 +2468,8 @@ export interface ResolveAgentApi {
   selectNode(id: string): void;
   appendToTrack(trackId: string, mediaId: string, atFrame: number): TimelineClip | null;
   split(): boolean;
+  trimToPlayhead(): boolean;
+  setClipEnabled(clipId: string, enabled: boolean): boolean;
   setIn(): number;
   setOut(): number;
   stepPlayhead(frames: number): number;
@@ -2536,6 +2551,8 @@ const api: ResolveAgentApi = {
   selectNode,
   appendToTrack,
   split,
+  trimToPlayhead,
+  setClipEnabled: (clipId, enabled) => setClipEnabled(clipId, enabled),
   setIn,
   setOut,
   stepPlayhead,
