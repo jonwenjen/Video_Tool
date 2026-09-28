@@ -1981,14 +1981,42 @@ let polling = false;
 let stopped = false;
 let backoff = 500;
 
+/**
+ * The last capability payload handed to the server.
+ *
+ * `/health` shows the server's stored copy, and the server only refreshes it
+ * when a client says hello. Announcing once at connect therefore froze the
+ * answer at connect time — and connect happens BEFORE `bootPipeline()` has
+ * resolved, so a perfectly healthy tab reported `hasPipeline: false` forever
+ * and looked identical to a broken one. Re-announcing on change costs nothing
+ * when nothing changed and fixes the reporting the moment boot lands.
+ */
+let lastAnnounced: string | null = null;
+
+function capabilitySignature(caps: Record<string, unknown>): string {
+  // The volatile fields that actually change: precision, pipeline presence,
+  // viewer size, and the tail of the app log. Everything else is static.
+  return JSON.stringify([
+    caps.hasPipeline,
+    caps.pipelinePrecision,
+    caps.viewerSize,
+    caps.hasApp,
+    Array.isArray(caps.logTail) ? (caps.logTail as unknown[]).length : 0,
+  ]);
+}
+
 async function announce(): Promise<void> {
+  const caps = capabilities();
   const hello: ClientHello = {
     clientId: CLIENT_ID,
     url: location.href,
     userAgent: navigator.userAgent,
     commands: COMMAND_NAMES,
-    capabilities: capabilities(),
+    capabilities: caps,
   };
+  const signature = capabilitySignature(caps);
+  if (lastAnnounced !== null && signature === lastAnnounced) return;
+  lastAnnounced = signature;
   try {
     await fetch(`${ORIGIN}/client/hello`, {
       method: 'POST',
@@ -2078,7 +2106,21 @@ async function connect(): Promise<void> {
   if (stopped || polling || socket) return;
   polling = true;
   try {
+    // Always announce on (re)connect. The dedupe below exists to avoid
+    // re-posting an unchanged payload every few seconds, but carrying it across
+    // a reconnect means a restarted server — which has just forgotten this
+    // client entirely — is never told anything, and /health then shows an
+    // empty command list for a perfectly healthy tab.
+    lastAnnounced = null;
     await announce();
+    // Re-announce once the app is up. connect() runs during module evaluation,
+    // long before bootPipeline() resolves, so the first announce necessarily
+    // describes a page with no pipeline — and without this the server would
+    // keep that pre-boot answer for the life of the tab.
+    const ready = app()?.ready as Promise<unknown> | undefined;
+    if (ready && typeof ready.then === 'function') {
+      void ready.then(() => announce()).catch(() => { /* a later change re-announces */ });
+    }
     const health = await fetch(`${ORIGIN}/health`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     if (health?.transport === 'ws') {
       polling = false;

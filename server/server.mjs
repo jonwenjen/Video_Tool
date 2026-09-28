@@ -73,7 +73,15 @@ const PREFERRED_GRACE_MS = 2_500;
  * /client/hello and any drift is reported as a `log` event + a health warning.
  */
 const COMMAND_NAMES = [
-  'open_media', 'import_media', 'list_media', 'list_timeline', 'set_playhead', 'set_page',
+  // Transport, editing and timecode. This array is a hand-maintained mirror of
+  // the browser executor (src/agent/protocol.ts COMMAND_TABLE) because an .mjs
+  // file cannot import the TypeScript one. Keep the two in step: /health
+  // reports the difference as commandDrift, and a client command the server
+  // has never heard of is one the server will not route predictably.
+  'open_media', 'import_media', 'list_media', 'list_timeline', 'set_playhead',
+  'goto_timecode', 'play', 'pause', 'step_playhead', 'set_loop', 'set_range',
+  'split', 'append_to_track', 'trim_to_playhead', 'set_clip_enabled',
+  'set_page',
   'add_node', 'remove_node', 'connect_nodes', 'set_node_param', 'set_grade', 'auto_balance',
   'analyze_frame', 'get_scopes', 'read_pixel', 'export_frame', 'export_video', 'apply_lut',
   'select_clip', 'keyframe', 'save_project', 'undo', 'redo', 'screenshot',
