@@ -1487,3 +1487,19 @@ kbd {
 .timeline-tools .edit-btn:hover { background: var(--bg-4); border-color: var(--accent-dim); color: var(--text-hi); }
 .timeline-tools .edit-btn:active { transform: translateY(1px); background: var(--accent-soft); }
 .timeline-tools .edit-btn:disabled { opacity: 0.35; pointer-events: none; }
+
+/* Grade actions in the viewer header: wide enough to hit without aiming. */
+.grade-btn {
+  min-width: 68px;
+  min-height: 26px;
+  padding: 3px 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.grade-btn:hover:not(:disabled) {
+  background: var(--accent-soft, rgba(255, 255, 255, 0.12));
+}
+.grade-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

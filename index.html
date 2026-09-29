@@ -218,6 +218,20 @@
                 largest hit targets in this bar for the same reason.
               -->
               <span class="tool-sep" role="separator" aria-hidden="true"></span>
+              <!--
+                Grade actions belong beside the image for the same reason the
+                flip buttons do: they are used while looking at the picture.
+                They were only in the Edit menu, where the buttons measured
+                0x0 until the menu was opened — reachable, but only if you knew
+                to look, and that is the same as not there.
+              -->
+              <button class="icon-btn grade-btn" type="button" data-cmd="auto_balance"
+                      title="Sample the frame and correct the white point (AUTO WB)">AUTO WB</button>
+              <button class="icon-btn grade-btn" type="button" data-cmd="copy"
+                      title="Copy this node's grade (COPY)">COPY</button>
+              <button class="icon-btn grade-btn" type="button" data-cmd="paste"
+                      title="Paste a copied grade onto this node (PASTE)">PASTE</button>
+              <span class="tool-sep" role="separator" aria-hidden="true"></span>
               <button class="icon-btn flip-btn" type="button" data-flip="x" aria-pressed="false"
                       title="Flip horizontally (mirror left-right)">⇋</button>
               <button class="icon-btn flip-btn" type="button" data-flip="y" aria-pressed="false"

@@ -42,16 +42,16 @@ await sleep(1500);
 // Click the real buttons, the way a person would.
 const clickAct = async (act) => {
   const box = await p.eval(`
-    const el = document.querySelector('[data-cmd="${act}"]');
-    if (!el) return null;
+    const el = document.querySelector('.viewer-tools [data-cmd="${act}"]');
+    if (!el) return 'no header button for ${act}';
     el.scrollIntoView({ block: 'center' });
     const r = el.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height };
   `);
   if (!box) return 'no such button';
-  if (box.w < 8 || box.h < 8) return `button is ${box.w}x${box.h}px — too small to hit`;
+  if (box.w < 40 || box.h < 24) return `header button is only ${box.w}x${box.h}px — too small to hit`;
   const r = await p.eval(`
-    const el = document.querySelector('[data-cmd="${act}"]');
+    const el = document.querySelector('.viewer-tools [data-cmd="${act}"]');
     el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
     el.click();
@@ -60,9 +60,11 @@ const clickAct = async (act) => {
   return true;
 };
 
-// KNOWN FAILING, on purpose. Copy Grade / Paste Grade live in a collapsed menu
-// and measure 0x0, so they cannot be clicked at all. The code behind them is
-// fixed; the control is still unreachable. Kept failing until it is reachable.
+// PARTIALLY FIXED. The three grade buttons in the viewer header are hittable
+// and AUTO WB is verified end to end through the shared app.autoBalance path.
+// Copy and paste both execute and log success, but the round trip does NOT
+// restore the grade — so paste still claims work it does not do. The failing
+// check below is that bug, left red on purpose.
 console.log('=== copy / paste: the buttons must actually move a grade ===');
 // Exposure, not saturation: cast.png's probe area is near-white, where a
 // saturation change is invisible and the test would pass on a no-op.
@@ -79,22 +81,25 @@ for (const [x, y] of [[40,40],[120,80],[240,160],[400,240],[200,300],[60,200]]) 
   if (a !== b) { PX = x; PY = y; break; }
 }
 await setExp(0);
+// Copy FIRST. Copying after the change would copy the changed grade, and a
+// paste that restores what is already there proves nothing.
+await setExp(0);
 const before = await probe(PX, PY);
+check('COPY button is hit and clickable', (await clickAct('copy')) === true);
 await setExp(-1.6);
 const changed = await probe(PX, PY);
-console.log(`  probe point ${PX},${PY}`);
 check('a grade change moves pixels', before !== changed, `${before} -> ${changed}`);
-
-const cRes = await clickAct('copy');
-console.log('  copy click ->', JSON.stringify(cRes));
-check('COPY button is hit and clickable', cRes === true);
-const pRes = await clickAct('paste');
-console.log('  paste click ->', JSON.stringify(pRes));
-check('PASTE button is hit and clickable', pRes === true);
+check('PASTE button is hit and clickable', (await clickAct('paste')) === true);
 await sleep(700);
+const clip = await p.eval(`(() => { try { return String(window.__gradeClipboardDebug); } catch (e) { return 'n/a'; } })()`);
+const logNow = await p.eval(`
+  const el = document.querySelector('#log, .log, [data-log], #console, .console, pre, [id*=log i]');
+  return el ? (el.textContent || '').split('\\n').filter(Boolean).slice(-4).join(' | ').slice(0, 300) : 'NO LOG ELEMENT';
+`);
+console.log('  log after copy+paste:', logNow);
 const afterPaste = await probe(PX, PY);
 check('paste restored the copied grade', afterPaste === before, `${changed} -> ${afterPaste} (copied was ${before})`);
-check('and the result is not a no-op', afterPaste !== changed);
+
 
 console.log('\n=== paste with nothing copied must say so, not claim success ===');
 const r = await rpc('undo', {});
@@ -106,6 +111,25 @@ const logTail = await p.eval(`
   return t.split('\\n').filter(Boolean).slice(-3).join(' | ');
 `);
 check('the log explains it', /copy a grade first|not implemented|no marker/i.test(logTail) || logTail.length > 0, logTail.slice(0, 160));
+
+console.log('\n=== auto balance: the button must do what the agent command does ===');
+const abBox = await p.eval(`
+  const el = document.querySelector('.viewer-tools [data-cmd="auto_balance"]');
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { w: r.width, h: r.height, disabled: el.disabled };
+`);
+check('AUTO WB button is present and hittable', !!abBox && abBox.w >= 40 && abBox.h >= 24 && !abBox.disabled, JSON.stringify(abBox));
+if (abBox && !abBox.disabled) {
+  await rpc('set_grade', { grade: { primary: { temperature: 0.55 } } });
+  const preAB = await rpc('get_scopes', {}).then((q) => JSON.stringify(q.result?.mean));
+  await clickAct('auto_balance');
+  await sleep(1800);
+  const postAB = await rpc('get_scopes', {}).then((q) => JSON.stringify(q.result?.mean));
+  check('AUTO WB button changes the image', preAB !== postAB, `${preAB} -> ${postAB}`);
+  const r2 = await rpc('auto_balance', {});
+  check('the agent command still works', r2.ok, r2.ok ? String(r2.result?.source) : JSON.stringify(r2.error).slice(0, 120));
+}
 
 console.log('\n=== add_marker must not claim a marker it did not create ===');
 await clickAct('add_marker');

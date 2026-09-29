@@ -786,25 +786,6 @@ function grabPixels(maxSide = 256, preferCanvas = false): PixelSource | null {
   }
 }
 
-/**
- * Converts a grabbed frame to the engine's layout: a flat Float32Array of RGB
- * triples. A 4-channel readback is de-alpha'd; a 3-channel one is normalised to
- * float range so a Uint8 buffer is not mistaken for scene-linear values.
- */
-function toEnginePixels(pixels: PixelSource): Float32Array {
-  const { data, width, height } = pixels;
-  const isFloat = data instanceof Float32Array;
-  const channels = data.length >= width * height * 4 ? 4 : 3;
-  const count = width * height;
-  const out = new Float32Array(count * 3);
-  const scale = isFloat ? 1 : 1 / 255;
-  for (let i = 0; i < count; i++) {
-    out[i * 3] = data[i * channels] * scale;
-    out[i * 3 + 1] = data[i * channels + 1] * scale;
-    out[i * 3 + 2] = data[i * channels + 2] * scale;
-  }
-  return out;
-}
 
 function asPixelArray(raw: unknown): Uint8ClampedArray | Float32Array | null {
   if (ArrayBuffer.isView(raw) && !(raw instanceof DataView)) {
@@ -850,51 +831,6 @@ function loadCpuGrade(): Promise<CpuGradeEngine | null> {
   return cpuGradePromise;
 }
 
-/**
- * Folds whatever the engine returned into a GradeState patch.
- *
- * The two entry points disagree on shape: autoWhiteBalance returns a bare RGB
- * gain triple, autoLevels returns a Partial<PrimaryState>. Both are normalised to
- * `{ primary: {...} }` so the caller has exactly one thing to merge. A result
- * that is already nested under `primary` is passed through, not double-wrapped.
- */
-function normalizeBalance(raw: unknown): Container {
-  // autoWhiteBalance's RGB gains.
-  if (isRGBArray(raw)) return { primary: { gain: toRGB(raw) } };
-  if (!isPlainObject(raw)) {
-    throw new CommandError(
-      `auto_balance returned ${describe(raw)}; expected an RGB triple or an object of correction values`,
-      'bad_result',
-    );
-  }
-  if (isPlainObject(raw.primary)) return { primary: raw.primary };
-
-  const primary: Container = {};
-  if (isRGBArray(raw.lift)) primary.lift = toRGB(raw.lift);
-  if (isRGBArray(raw.gamma)) primary.gamma = toRGB(raw.gamma);
-  if (isRGBArray(raw.gain)) primary.gain = toRGB(raw.gain);
-  if (isRGBArray(raw.offset)) primary.offset = toRGB(raw.offset);
-
-  let triple: [number, number, number] | null = null;
-  if (isRGBArray(raw.gains)) triple = toRGB(raw.gains);
-  else if (typeof raw.r === 'number' && typeof raw.g === 'number' && typeof raw.b === 'number') {
-    triple = [raw.r, raw.g, raw.b];
-  }
-  if (triple && !primary.gain) primary.gain = triple;
-
-  for (const key of ['temperature', 'tint', 'saturation', 'contrast', 'pivot', 'brightness', 'vibrance', 'hue'] as const) {
-    if (typeof raw[key] === 'number') primary[key] = raw[key];
-  }
-
-  if (Object.keys(primary).length === 0) {
-    // An empty result is meaningful, not a failure: autoLevels returns {} when
-    // the histogram is already well-placed, and autoWhiteBalance returns
-    // identity gains. Report it as a no-op so the agent can loop without
-    // treating "nothing to do" as an error.
-    return { neutral: true, note: 'the engine found no correction to make for this frame' };
-  }
-  return { primary };
-}
 
 // ---------------------------------------------------------------------------
 // Uploads
@@ -1501,50 +1437,25 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
   },
 
   // ---- auto balance ---------------------------------------------------
+  // Delegates to the app. This was a second, agent-only implementation: the
+  // UI's auto_balance button could not reach it and answered differently for
+  // the same action. One implementation, one answer.
   auto_balance: async ({ params, command, progress }) => {
     const a = needApp(command);
-    const node = findNode(a, str(params, 'id'));
-    const method = str(params, 'method') ?? 'white-balance';
-
-    progress(0.1, 'sampling pixels');
-    const pixels = grabPixels();
-    if (!pixels) {
-      throw new CommandError(
-        'could not read pixels from the viewer — load a clip and make sure the viewer canvas is not tainted by a cross-origin source',
-        'no_pixels',
+    if (typeof a.autoBalance !== 'function') {
+      throw new CommandError('this build of the app exposes no autoBalance', 'unsupported');
+    }
+    progress(0.3, 'sampling pixels and balancing');
+    try {
+      const res = await a.autoBalance(
+        str(params, 'id') || undefined,
+        (str(params, 'method') || 'white-balance') as 'neutral' | 'white-balance',
       );
+      return { ...res, source: 'app.autoBalance' };
+    } catch (err) {
+      throw new CommandError((err as Error).message, 'auto_balance_failed');
     }
-
-    const engine = await loadCpuGrade();
-    if (!engine) {
-      throw new CommandError(
-        'the CPU grade engine (src/color/cpugrade.ts) is not available in this build, so auto_balance cannot run',
-        'engine_unavailable',
-      );
-    }
-
-    progress(0.5, `running ${method}`);
-    const fn = method === 'neutral' ? engine.autoLevels : (engine.autoWhiteBalance ?? engine.autoLevels);
-    if (typeof fn !== 'function') {
-      throw new CommandError(`the CPU grade engine exposes no ${method === 'neutral' ? 'autoLevels' : 'autoWhiteBalance'} function`, 'engine_unavailable');
-    }
-
-    // autoWhiteBalance takes its method as an option; autoLevels ignores it.
-    // The engine indexes pixels as RGB triples; a canvas readback is RGBA, so
-    // hand it RGB — feeding RGBA misaligns every channel after the first pixel.
-    const raw = fn.call(engine, toEnginePixels(pixels), { method, width: pixels.width, height: pixels.height });
-    const patch = normalizeBalance(raw);
-
-    progress(0.8, 'applying');
-    const grade = (node.grade ??= {});
-    mergeGrade(grade, patch);
-    a.setParam?.(node.id, 'grade', grade);
-    render();
-
-    return { id: node.id, method, source: pixels.source, applied: patch, grade: jsonSafe(grade) };
   },
-
-  // ---- analysis -------------------------------------------------------
   analyze_frame: async ({ params, progress }) => {
     const a = needApp('analyze_frame');
     const pipe = pipeline();

@@ -31,6 +31,7 @@ import type {
   Track,
 } from './core/types.js';
 import { createNode, defaultGrade, defaultGraph } from './core/defaults.js';
+import { runAutoBalance, type BalanceMethod, type BalancePixels } from './color/autobalance.js';
 import './ui/styles.css';
 
 // Side-effect import: the agent bridge auto-starts on evaluation and resolves
@@ -762,10 +763,16 @@ const statusEl = {
 
 let logCount = 0;
 
+const logLines: string[] = [];
+
 function log(message: string, level: 'cmd' | 'ok' | 'warn' | 'err' = 'ok'): void {
   const ts = new Date().toISOString().slice(11, 23);
   const line = h('span', { class: `lvl-${level}` }, `[${ts}] ${message}\n`);
   agentLog.append(line);
+  logLines.push(message);
+  // Bounded: the console is a tail, not a journal, and an unbounded array here
+  // would grow for the life of the page.
+  if (logLines.length > 500) logLines.shift();
   logCount += 1;
   q('#agent-count').textContent = String(logCount);
   agentLog.scrollTop = agentLog.scrollHeight;
@@ -2539,7 +2546,12 @@ function syncFlipButtons(): void {
 
 function syncUndoButtons(): void {
   for (const btn of qsa<HTMLButtonElement>('.viewer-tools [data-cmd]')) {
-    const depth = btn.dataset.cmd === 'undo' ? undoStack.length : redoStack.length;
+    // Only undo and redo have a stack to be empty. This used to read
+    // redoStack for anything that was not 'undo', so the grade buttons added to
+    // this bar were disabled whenever redo was empty — visible, and dead.
+    const cmd = btn.dataset.cmd;
+    if (cmd !== 'undo' && cmd !== 'redo') continue;
+    const depth = cmd === 'undo' ? undoStack.length : redoStack.length;
     btn.disabled = depth === 0;
   }
 }
@@ -2660,8 +2672,9 @@ function wireTransport(): void {
 
   qsa<HTMLButtonElement>('.viewer-tools [data-cmd]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (btn.dataset.cmd === 'undo') undo();
-      else if (btn.dataset.cmd === 'redo') redo();
+      // Same dispatcher the menu uses, so a button in the header and the
+      // identical item in the menu cannot behave differently.
+      runCommand(btn.dataset.cmd!, btn.dataset);
       syncUndoButtons();
     });
   });
@@ -2784,7 +2797,17 @@ function runCommand(cmd: string, data: DOMStringMap | Record<string, string | un
       if (!clip) { log('paste: copy a grade first', 'warn'); break; }
       const n = findNode();
       if (!n) { log('paste: no node selected', 'warn'); break; }
-      mutate('paste grade', () => { n.grade = structuredClone(clip); });
+      // Write INTO the existing grade rather than replacing the object. Every
+      // other path here (setParam, auto balance) mutates a nested property, and
+      // replacing the reference left the picture unchanged even though the log
+      // said the grade had been applied.
+      mutate('paste grade', () => {
+        const target = n.grade as unknown as unknown as Record<string, unknown>;
+        for (const key of Object.keys(target)) {
+          Reflect.deleteProperty(target, key);
+        }
+        deepMerge(target, structuredClone(clip) as unknown as Record<string, unknown>);
+      });
       log(`paste: grade applied to ${n.id}`, 'ok');
       break;
     }
@@ -2798,7 +2821,14 @@ function runCommand(cmd: string, data: DOMStringMap | Record<string, string | un
     case 'reset_grade': { const n = findNode(); if (n) mutate('resetGrade', () => { n.grade = defaultGrade(); }); break; }
     case 'add_node': addNode('serial'); break;
     case 'add_parallel': addNode('parallel'); break;
-    case 'auto_balance': log('auto_balance: owned by the pipeline workstream', 'warn'); break;
+    case 'auto_balance':
+      // Same code path the agent uses. It used to log that it was "owned by
+      // the pipeline workstream" and do nothing, while auto_balance over RPC
+      // quietly did the real work — the same action, two answers.
+      void autoBalance()
+        .then((r) => log(`auto balance (${(r as { method: string }).method}) applied to ${(r as { id: string }).id}`, 'ok'))
+        .catch((err: unknown) => log(`auto balance failed: ${(err as Error).message}`, 'err'));
+      break;
     case 'mark_in': setIn(); break;
     case 'mark_out': setOut(); break;
     // Markers are not in the timeline model yet. Saying "ok" here was a lie:
@@ -3034,7 +3064,12 @@ export interface ResolveAgentApi {
   getParam(path: string, nodeId?: string): unknown;
   readPixel(x: number, y: number): ArrayLike<number> | null;
   saveProject(path?: string): boolean;
+  /** Auto balance on a node. Shared by the UI button and the agent command. */
+  autoBalance(nodeId?: string, method?: 'neutral' | 'white-balance'): Promise<{ id: string; method: string; patch: unknown; applied: unknown }>;
   log(message: string, level?: 'cmd' | 'ok' | 'warn' | 'err'): void;
+  /** Every console line, oldest first. The UI test harness reads this rather
+   *  than scraping the DOM for a selector it would have to guess. */
+  logLines: string[];
 }
 
 /** Single display-referred RGBA pixel probe, the agent's `read_pixel`. */
@@ -3054,6 +3089,66 @@ function readPixel(x: number, y: number): ArrayLike<number> | null {
     gl.readPixels(x, viewerCanvas.height - y, 1, 1, gl.RGBA, gl.FLOAT, buf);
     return buf;
   } catch { return null; }
+}
+
+/** Recursive merge of a grade patch onto a node's grade. Arrays are replaced
+ *  whole: a balance gain is a triple, never an element-wise blend. */
+function deepMerge(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (Array.isArray(value) || typeof value !== 'object' || value === null) {
+      target[key] = value;
+    } else {
+      const existing = target[key];
+      const child = typeof existing === 'object' && existing !== null && !Array.isArray(existing)
+        ? (existing as Record<string, unknown>)
+        : {};
+      deepMerge(child, value as Record<string, unknown>);
+      target[key] = child;
+    }
+  }
+}
+
+/** The whole displayed frame, RGBA. auto balance needs every pixel, not a probe. */
+function grabFrame(): BalancePixels | null {
+  const p = pipeline;
+  if (!p) return null;
+  // The pipeline exposes no size of its own: the render target it was last
+  // given is the viewer canvas, and that is the frame it holds.
+  const width = viewerCanvas.width;
+  const height = viewerCanvas.height;
+  if (!(width > 0) || !(height > 0)) return null;
+  if (typeof p.readPixels !== 'function') return null;
+  try {
+    const data = p.readPixels(0, 0, width, height);
+    if (!data || data.length < width * height) return null;
+    return { data: data as Float32Array, width, height };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Auto balance, on the selected node. The UI button and the agent command both
+ * land here — the button used to log "owned by the pipeline workstream" and do
+ * nothing while the agent quietly did the real work.
+ */
+async function autoBalance(nodeId?: string, method: BalanceMethod = 'white-balance'): Promise<{
+  id: string; method: BalanceMethod; patch: unknown; applied: unknown;
+}> {
+  const node = nodeId ? project.settings.timelineGraph.nodes.find((n) => n.id === nodeId) : findNode();
+  if (!node) throw new Error('auto balance: no node selected');
+  const pixels = grabFrame();
+  if (!pixels) {
+    throw new Error('auto balance: could not read the viewer — load a clip and make sure it is not a cross-origin source');
+  }
+  const { patch } = await runAutoBalance(pixels, method);
+  mutate('auto balance', () => {
+    deepMerge(node.grade as unknown as Record<string, unknown>, patch);
+  });
+  paintViewer();
+  // `applied` is the documented agent field name; `patch` is the same object.
+  // Both are returned so the RPC contract does not regress.
+  return { id: node.id, method, patch, applied: patch };
 }
 
 function getState(): Record<string, unknown> {
@@ -3123,8 +3218,10 @@ const api: ResolveAgentApi = {
   setLoop,
   getParam,
   readPixel,
+  autoBalance,
   saveProject,
   log,
+  logLines,
 };
 
 declare global {
