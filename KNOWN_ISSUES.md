@@ -9,6 +9,31 @@ below is a case the suite does **not** cover. That is the point of this file.
 
 ---
 
+## 0. SOLVED — the measurement environment, and the one line behind it
+
+`pause()` early-returned on `!state.playing`. When the app already believed it
+was paused while the `<video>` element was still running, the command did
+nothing: the playhead froze and the picture kept moving underneath it.
+
+A read taken 1.5s after `set_playhead` was therefore some other frame, and every
+A/B comparison was between two different images. A grade that read G/R 1.04 in
+one run read 1.37 in the next — a spread larger than the effect being measured.
+
+Run `node scripts/measure-gate.mjs` before trusting any measurement. It has four
+gates and all of them pass:
+
+1. the readback holds still after pause
+2. a read at frame N is that frame, and re-seeking reproduces it exactly
+3. a grade change moves pixels and returns to the original value
+4. **the same measurement, run twice, produces the same numbers**
+
+Gate 4 is the one that was missing for this whole session. Reproducibility, not
+agreement with an expectation, is what makes a measurement worth anything. Every
+comparison is bracketed rather than sampled once, because drift that starts
+mid-sweep is what a single check misses.
+
+---
+
 ## 1. RETRACTED — the "render latches" bug could not be reproduced
 
 **This was the top item in the previous version of this file. It was wrong, and
@@ -41,9 +66,9 @@ Every readback of that session was a measurement of a pipeline with no source.
 
 The one thing not explained: on the operator's live tab the readback returned
 **non-zero** underwater values (G/R 1.57, matching a real decode) that would not
-move. That is still unexplained. It may have been a different tab state. Do not
-assume this issue is closed — assume the evidence for it was bad and go and look
-again with a correct setup.
+move. Given issue 0 — a `<video>` running underneath a paused app — that is
+almost certainly the same cause, and it is now reproducible on demand rather than
+being an unexplained observation. It is not called solved on that basis alone.
 
 Hypotheses that were raised and are now **ruled out by measurement**, not by
 argument: `ensureTargets` rebuilding each frame, `framebufferTexture2D`

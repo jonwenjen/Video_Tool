@@ -674,14 +674,19 @@ function play(): boolean {
 }
 
 function pause(): boolean {
-  if (!state.playing) return false;
+  const wasPlaying = state.playing;
   state.playing = false;
   app.dataset.playing = '0';
   const btn = qo<HTMLButtonElement>('[data-transport="play"]');
   btn?.setAttribute('title', 'Play (Space)');
   if (btn) btn.dataset.state = 'paused';
+  // Always sync the element, even when the app already believed it was paused.
+  // This used to early-return on `!state.playing`, which left a <video> that
+  // was still running untouched: the playhead stopped but the picture kept
+  // moving, so every read taken "at frame N" was some other frame. Measured
+  // grades disagreed between runs by more than the effect being measured.
   toggleVideo(false);
-  log('pause', 'cmd');
+  if (wasPlaying) log('pause', 'cmd');
   return false;
 }
 
