@@ -2354,10 +2354,31 @@ decodeVideo.addEventListener('seeked', () => { seekPending = -1; });
 
 // --- loop ---
 
-const raf: (cb: (t: number) => void) => number =
-  typeof requestAnimationFrame === 'function'
-    ? (cb) => requestAnimationFrame(cb)
-    : (cb) => setTimeout(() => cb(performance.now()), 16) as unknown as number;
+// rAF is the right clock while the tab is visible: it is synced to the display
+// and it stops when there is nothing to show. A HIDDEN tab is the problem —
+// rAF still exists there but never fires, so a plain rAF loop stops painting
+// altogether. Every readback, scope reading and agent screenshot then returns
+// a black frame, and the agent has no way to tell that apart from a black
+// shot. So each frame is scheduled on rAF *and* on a timer, first one wins
+// and cancels the other. Background timers are throttled to about a second,
+// which is slow, but it is a painted frame rather than no frame.
+let rafHandle = 0;
+let rafTimer = 0;
+
+function raf(cb: (t: number) => void): void {
+  let ran = false;
+  const once = (t: number): void => {
+    if (ran) return;
+    ran = true;
+    if (rafHandle) cancelAnimationFrame(rafHandle);
+    if (rafTimer) clearTimeout(rafTimer);
+    rafHandle = 0;
+    rafTimer = 0;
+    cb(t);
+  };
+  if (typeof requestAnimationFrame === 'function') rafHandle = requestAnimationFrame(once);
+  rafTimer = setTimeout(() => once(performance.now()), 100) as unknown as number;
+}
 
 let lastTick = 0;
 let fpsEma = 0;

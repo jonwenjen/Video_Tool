@@ -1588,8 +1588,13 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     const a = needApp('read_pixel');
     if (num(params, 'frame') !== undefined) {
       a.setPlayhead?.(Number(params.frame));
-      await settleFrame();
     }
+    // Settle unconditionally, not just after a seek. Without this the probe
+    // races the render loop: a visible tab has just painted so it looks fine,
+    // but a hidden tab paints on a throttled timer and the 1x1 read lands on a
+    // cleared buffer and reports a confident #000000 for a frame that is
+    // actually fine. get_scopes already waited; this did not.
+    await settleFrame();
     const x = Math.round(Number(params.x));
     const y = Math.round(Number(params.y));
     // maxSide 0 = full resolution, so the requested coordinate indexes the
@@ -1908,10 +1913,28 @@ function render(): void {
   queueMicrotask(() => { /* let the frame loop run */ });
 }
 
-/** Await two painted frames, for callers that must read the result. */
+/**
+ * Await two painted frames, for callers that must read the result.
+ *
+ * requestAnimationFrame does not fire in a hidden tab, so waiting on it alone
+ * hangs forever when the app sits in a background window: get_scopes and
+ * analyze_frame never returned, the server timed the command out after 30s,
+ * and the client was left stuck inside the handler for the life of the page.
+ * A timer is the floor. When the tab is visible rAF wins and this costs
+ * nothing; when it is not, timers are throttled to ~1s but still fire, which
+ * is the difference between a slow answer and no answer.
+ */
 function settleFrame(): Promise<void> {
   return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    let settled = false;
+    const done = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(done, 250);
+    requestAnimationFrame(() => requestAnimationFrame(done));
   });
 }
 
