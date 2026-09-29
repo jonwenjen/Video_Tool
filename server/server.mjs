@@ -81,6 +81,8 @@ const COMMAND_NAMES = [
   'open_media', 'import_media', 'list_media', 'list_timeline', 'set_playhead',
   'goto_timecode', 'play', 'pause', 'step_playhead', 'set_loop', 'set_range',
   'split', 'append_to_track', 'trim_to_playhead', 'set_clip_enabled',
+  'ripple_delete', 'lift_clip', 'insert_clip', 'duplicate_clip', 'move_clip',
+  'trim_clip', 'add_track',
   'set_page',
   'add_node', 'remove_node', 'connect_nodes', 'set_node_param', 'set_grade', 'auto_balance',
   'analyze_frame', 'get_scopes', 'read_pixel', 'export_frame', 'export_video', 'apply_lut',

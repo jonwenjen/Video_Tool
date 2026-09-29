@@ -1469,3 +1469,21 @@ kbd {
   cursor: default;
   pointer-events: none;
 }
+
+/* Edit verbs in the timeline toolbar. Large, bordered, and permanently
+   visible: these are used while looking at the clips, with one hand still on
+   the mouse, so a 15px glyph-only target is the wrong size. */
+.timeline-tools .edit-btn {
+  min-width: 30px;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.timeline-tools .edit-btn:hover { background: var(--bg-4); border-color: var(--accent-dim); color: var(--text-hi); }
+.timeline-tools .edit-btn:active { transform: translateY(1px); background: var(--accent-soft); }
+.timeline-tools .edit-btn:disabled { opacity: 0.35; pointer-events: none; }

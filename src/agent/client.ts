@@ -64,6 +64,15 @@ export interface ResolveApi {
   stepPlayhead?(frames: number): unknown;
   split?(): unknown;
   trimToPlayhead?(): unknown;
+  // The basic edit verbs. Typed loosely because this mirror exists so an agent
+  // can drive the app from the outside, not to restate the app's own types.
+  rippleDelete?(clipId?: string): unknown;
+  liftClip?(clipId?: string): unknown;
+  insertClip?(mediaId: string, trackId: string, frame?: number, mode?: 'insert' | 'overwrite'): unknown;
+  duplicateClip?(clipId?: string): unknown;
+  moveClip?(clipId: string | undefined, delta: number, mode?: 'ripple' | 'slide'): unknown;
+  trimClip?(clipId: string | undefined, edge: 'start' | 'end', frame: number): unknown;
+  addTrack?(): unknown;
   setClipEnabled?(clipId: string, enabled: boolean): unknown;
   appendToTrack?(trackId: string, mediaId: string, atFrame: number): unknown;
   setLoop?(enabled: boolean): unknown;
@@ -184,6 +193,28 @@ const SPECS: Record<string, Record<string, FieldSpec>> = {
   set_loop: { enabled: { type: 'boolean' } },
   set_range: { in: { type: 'integer' }, out: { type: 'integer' } },
   split: { frame: { type: 'integer' } },
+  ripple_delete: { id: { type: 'string' } },
+  lift_clip: { id: { type: 'string' } },
+  insert_clip: {
+    // Not required: the handler falls back to the pool selection and then to
+    // the first clip, so a caller can say "insert" without naming a source.
+    mediaId: { type: 'string' },
+    trackId: { type: 'string' },
+    frame: { type: 'integer' },
+    mode: { type: 'enum', values: ['insert', 'overwrite'] },
+  },
+  duplicate_clip: { id: { type: 'string' } },
+  move_clip: {
+    id: { type: 'string' },
+    delta: { type: 'integer', required: true },
+    mode: { type: 'enum', values: ['ripple', 'slide'] },
+  },
+  trim_clip: {
+    id: { type: 'string' },
+    edge: { type: 'enum', required: true, values: ['start', 'end'] },
+    frame: { type: 'integer', required: true },
+  },
+  add_track: {},
   append_to_track: { mediaId: { type: 'string' }, trackId: { type: 'string' }, atFrame: { type: 'integer' } },
   trim_to_playhead: { frame: { type: 'integer' } },
   set_clip_enabled: { clipId: { type: 'string' }, enabled: { type: 'boolean' } },
@@ -1240,6 +1271,70 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     a.selectClip?.(id);
     if (t) t.selection = [id];
     return { id, found: true, selection: [id] };
+  },
+
+  // ---- basic edit verbs -------------------------------------------------
+  // These return what they acted on, and refuse loudly rather than doing
+  // nothing quietly, so an agent can tell a refusal from a no-op.
+  ripple_delete: ({ params }) => {
+    const a = needApp('ripple_delete');
+    const removed = (a.rippleDelete?.(str(params, 'id')) as string[] | undefined) ?? [];
+    if (removed.length === 0) throw new CommandError('ripple_delete: no such clip', 'clip_not_found');
+    return { removed, clips: (a.getState?.() as { timelineClips?: number }).timelineClips };
+  },
+
+  lift_clip: ({ params }) => {
+    const a = needApp('lift_clip');
+    const removed = (a.liftClip?.(str(params, 'id')) as string[] | undefined) ?? [];
+    if (removed.length === 0) throw new CommandError('lift_clip: no such clip', 'clip_not_found');
+    return { removed, clips: (a.getState?.() as { timelineClips?: number }).timelineClips };
+  },
+
+  insert_clip: ({ params }) => {
+    const a = needApp('insert_clip');
+    const tl = a.project.timeline as { tracks?: { id: string; kind: string }[] } | undefined;
+    const tracks = tl?.tracks ?? [];
+    const trackId = str(params, 'trackId') ?? tracks.find((t) => t.kind === 'video')?.id ?? tracks[0]?.id ?? '';
+    const mediaId = str(params, 'mediaId') ?? (a.project.mediaPool?.[0] as { id?: string } | undefined)?.id ?? '';
+    const clip = a.insertClip?.(
+      mediaId, trackId,
+      params.frame as number | undefined,
+      (str(params, 'mode') as 'insert' | 'overwrite') ?? 'insert',
+    ) as { id: string; start: number; inFrame: number; outFrame: number; trackId: string } | null | undefined;
+    if (!clip) throw new CommandError(`insert_clip refused: no room, or media ${mediaId} has no duration`, 'insert_refused');
+    return { id: clip.id, start: clip.start, length: clip.outFrame - clip.inFrame, trackId: clip.trackId, mode: str(params, 'mode') ?? 'insert' };
+  },
+
+  duplicate_clip: ({ params }) => {
+    const a = needApp('duplicate_clip');
+    const copy = a.duplicateClip?.(str(params, 'id')) as { id: string; start: number; inFrame: number; outFrame: number } | null | undefined;
+    if (!copy) throw new CommandError('duplicate_clip: no clip selected', 'clip_not_found');
+    return { id: copy.id, start: copy.start, length: copy.outFrame - copy.inFrame };
+  },
+
+  move_clip: ({ params }) => {
+    const a = needApp('move_clip');
+    const moved = a.moveClip?.(str(params, 'id'), Math.trunc(Number(params.delta)), (str(params, 'mode') as 'ripple' | 'slide') ?? 'ripple');
+    if (!moved) throw new CommandError('move_clip refused: nothing selected, at the track head, locked, or a slide would overlap', 'move_refused');
+    const clips = (a.project.timeline as { clips?: { id: string; start: number }[] } | undefined)?.clips ?? [];
+    const t = str(params, 'id') ? clips.find((x) => x.id === str(params, 'id')) : undefined;
+    return { moved: true, start: t?.start ?? null };
+  },
+
+  trim_clip: ({ params }) => {
+    const a = needApp('trim_clip');
+    const edge = str(params, 'edge') as 'start' | 'end';
+    const ok = a.trimClip?.(str(params, 'id'), edge, Math.trunc(Number(params.frame)));
+    if (!ok) throw new CommandError('trim_clip: no clip selected', 'clip_not_found');
+    return { trimmed: true, edge, frame: Math.trunc(Number(params.frame)) };
+  },
+
+  add_track: ({ params }) => {
+    const a = needApp('add_track');
+    const track = a.addTrack?.() as { id: string; kind: string; name: string; index: number } | null | undefined;
+    if (!track) throw new CommandError('add_track: could not add a track', 'track_refused');
+    const tracks = (a.project.timeline as { tracks?: unknown[] } | undefined)?.tracks ?? [];
+    return { id: track.id, kind: track.kind, name: track.name, index: track.index, tracks: tracks.length };
   },
 
   // ---- node graph -----------------------------------------------------

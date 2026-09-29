@@ -528,6 +528,34 @@
           <div class="timeline-tools">
             <button class="icon-btn" type="button" data-tl-cmd="snap" aria-pressed="true" title="Snapping">⇔</button>
             <button class="icon-btn" type="button" data-tl-cmd="link" aria-pressed="true" title="Link selection">⛓</button>
+            <span class="tool-sep" role="separator" aria-hidden="true"></span>
+            <!--
+              The basic edit verbs, in the timeline toolbar rather than the Clip
+              menu: a cut is made with one hand on the timeline and the other
+              on the keyboard, so these need to be visible while you are
+              looking at the clips. Same large hit targets as the viewer header.
+            -->
+            <button class="icon-btn edit-btn" type="button" data-edit="split"
+                    title="Split at playhead (S)">✂ SPLIT</button>
+            <button class="icon-btn edit-btn" type="button" data-edit="ripple_delete"
+                    title="Ripple delete: remove the clip and close the gap (⇧⌫)">⇥ RIPPLE DEL</button>
+            <button class="icon-btn edit-btn" type="button" data-edit="lift_clip"
+                    title="Lift: remove the clip and leave a gap (⌫)">⇤ LIFT</button>
+            <span class="tool-sep" role="separator" aria-hidden="true"></span>
+            <button class="icon-btn edit-btn" type="button" data-edit="insert_clip"
+                    title="Insert the selected pool clip at the playhead, pushing the tail along">⤶ INSERT</button>
+            <button class="icon-btn edit-btn" type="button" data-edit="overwrite_clip"
+                    title="Overwrite the frames under the playhead">⤸ OVERWRITE</button>
+            <button class="icon-btn edit-btn" type="button" data-edit="duplicate_clip"
+                    title="Duplicate the selected clip">⧉ DUP</button>
+            <span class="tool-sep" role="separator" aria-hidden="true"></span>
+            <button class="icon-btn edit-btn" type="button" data-edit="move_left"
+                    title="Slide the selected clip one second earlier">◀◀</button>
+            <button class="icon-btn edit-btn" type="button" data-edit="move_right"
+                    title="Slide the selected clip one second later">▶▶</button>
+            <span class="tool-sep" role="separator" aria-hidden="true"></span>
+            <button class="icon-btn edit-btn" type="button" data-edit="add_track"
+                    title="Add a track">＋ TRACK</button>
             <span class="tc" id="timeline-tc" data-tc="timeline">00:00:00:00</span>
           </div>
           <div class="timeline-right">

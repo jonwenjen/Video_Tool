@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { launchChrome } from './cdp-client.mjs';
 import { fetchFixture } from './fixture-guard.mjs';
-import { AGENT_PORT, AGENT_ORIGIN, agentUrl, agentEnv } from './test-isolation.mjs';
+import { AGENT_PORT, AGENT_ORIGIN, agentUrl, agentEnv, requireSoleClient, killStaleAgentServers } from './test-isolation.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = Number(process.env.VERIFY_PORT ?? 4178);
@@ -54,6 +54,7 @@ await sleep(1200);
 // 1. Build
 // ---------------------------------------------------------------------------
 console.log('[verify] building');
+killStaleAgentServers();
 const build = spawnSync('node', ['node_modules/vite/bin/vite.js', 'build'], {
   cwd: ROOT, encoding: 'utf8', timeout: 300000,
 });
@@ -119,6 +120,9 @@ const rpc = (command, params = {}) => fetch(`${AGENT_ORIGIN}/rpc`, {
 console.log('=== environment ===');
 await page.enableDomains();
 const href = await page.goto(agentUrl(APP_PORT));
+// One client only: a page left over from an earlier run would answer these
+// commands instead, and every assertion below would measure the wrong browser.
+await requireSoleClient();
 // A failed navigation leaves about:blank / chrome-error:// and every
 // assertion below would pass vacuously.
 check('app loads', href.startsWith(ORIGIN), href);

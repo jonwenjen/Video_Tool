@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { launchChrome } from './cdp-client.mjs';
 import { fetchFixture } from './fixture-guard.mjs';
-import { AGENT_PORT, AGENT_ORIGIN, agentUrl, agentEnv } from './test-isolation.mjs';
+import { AGENT_PORT, AGENT_ORIGIN, agentUrl, agentEnv, requireSoleClient, killStaleAgentServers } from './test-isolation.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'out');
@@ -43,6 +43,7 @@ const srv = spawn('node', ['node_modules/vite/bin/vite.js', 'preview', '--port',
   cwd: ROOT, stdio: 'ignore',
 });
 // The browser client is built against 7801, so the test server must use it too.
+killStaleAgentServers();
 const ag = spawn('node', ['server/server.mjs'], { cwd: ROOT, stdio: 'ignore', env: agentEnv() });
 let browser;
 const cleanup = () => {
@@ -73,6 +74,9 @@ try {
   browser = await launchChrome();
   await browser.enableDomains();
   await browser.goto(agentUrl(PORT));
+// One client only: a page left over from an earlier run would answer these
+// commands instead, and every assertion below would measure the wrong browser.
+await requireSoleClient();
   await browser.eval('for (let i=0;i<100 && !document.querySelector(\'[data-ready="1"]\');i++) await new Promise(r=>setTimeout(r,100)); return 1;');
   await fetchFixture(browser, '/test/fixtures/cast.png', { magicHex: '89504e47' });
   await browser.eval(`

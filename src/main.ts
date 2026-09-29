@@ -284,19 +284,51 @@ interface Snapshot {
   bins: Bin[];
   mediaIds: string[];
   clipGraphs: Record<string, Graph>;
+  /**
+   * The whole timeline, not just the selection.
+   *
+   * This was missing, which meant undo could not undo a single edit: split,
+   * ripple delete, lift, insert, duplicate, move, trim and add-track all pushed
+   * an entry that restored the grade graph and left the timeline exactly as it
+   * was. Pressing undo printed "undo ok" and the cut stayed. An undo that
+   * reports success while changing nothing is worse than no undo at all.
+   */
+  timeline: {
+    tracks: Track[];
+    clips: TimelineClip[];
+    durationFrames: number;
+    startFrame: number;
+    playhead: number;
+    inPoint: number;
+    outPoint: number;
+    selection: string[];
+    fps: number;
+  };
 }
 
 const undoStack: Snapshot[] = [];
 const redoStack: Snapshot[] = [];
 
 function snap(): Snapshot {
+  const tl = project.timeline;
   return structuredClone({
     graph: project.settings.timelineGraph,
     page: project.page,
-    selection: project.timeline.selection,
+    selection: tl.selection,
     bins: project.bins,
     mediaIds: project.mediaPool.map((m) => m.id),
     clipGraphs: project.settings.clipGraphs,
+    timeline: {
+      tracks: tl.tracks,
+      clips: tl.clips,
+      durationFrames: tl.durationFrames,
+      startFrame: tl.startFrame,
+      playhead: tl.playhead,
+      inPoint: tl.inPoint,
+      outPoint: tl.outPoint,
+      selection: tl.selection,
+      fps: tl.fps,
+    },
   });
 }
 
@@ -326,6 +358,22 @@ function applySnapshot(s: Snapshot): void {
   project.bins = s.bins;
   reconcileBins(project.bins);
   project.settings.clipGraphs = s.clipGraphs;
+  // Restore the timeline in place rather than replacing the object: the
+  // timeline is captured by reference in a few places (transport state, the
+  // clip under the playhead), and swapping the object out from under them
+  // leaves stale references pointing at the pre-undo edit.
+  const tl = project.timeline;
+  tl.tracks = s.timeline.tracks;
+  tl.clips = s.timeline.clips;
+  tl.durationFrames = s.timeline.durationFrames;
+  tl.startFrame = s.timeline.startFrame;
+  tl.playhead = s.timeline.playhead;
+  tl.inPoint = s.timeline.inPoint;
+  tl.outPoint = s.timeline.outPoint;
+  tl.selection = s.timeline.selection;
+  tl.fps = s.timeline.fps;
+  // A clip that undo brought back may no longer be the one that was selected.
+  state.selectedTimelineClipId = tl.selection[0] ?? null;
   state.selectedNodeId = project.settings.timelineGraph.nodes[0]?.id ?? null;
   gotoPage(project.page, { silent: true });
   syncAll();
@@ -1278,6 +1326,302 @@ function split(): boolean {
   return true;
 }
 
+/** Duration of a clip in timeline frames. */
+function clipLength(clip: TimelineClip): number {
+  return Math.max(0, clip.outFrame - clip.inFrame);
+}
+
+function timelineClipsOn(trackId: string): TimelineClip[] {
+  return project.timeline.clips
+    .filter((c) => c.trackId === trackId)
+    .sort((a, b) => a.start - b.start);
+}
+
+/**
+ * Remove clips, optionally closing the gap.
+ *
+ * `ripple` is the distinction that matters in an edit: a ripple delete pulls
+ * everything after it left so nothing is left empty, a lift leaves a hole for
+ * the rest of the sequence to fill. Both are one function because they differ
+ * only in whether the tail moves.
+ */
+function removeClips(clipIds: string[], ripple: boolean): string[] {
+  const tl = project.timeline;
+  const targets = tl.clips.filter((c) => clipIds.includes(c.id));
+  if (targets.length === 0) {
+    log(`remove: none of ${clipIds.length} clip(s) exist`, 'warn');
+    return [];
+  }
+
+  mutate(ripple ? 'ripple delete' : 'lift', () => {
+    const removing = new Set(targets.map((t) => t.id));
+    tl.clips = tl.clips.filter((c) => !removing.has(c.id));
+
+    if (ripple) {
+      // Only what FOLLOWS the removed range moves. The first version shifted
+      // every clip on the track by the total freed length, which walked the
+      // head of the sequence off the front of the timeline: a ripple delete at
+      // frame 30 of a four-clip cut produced clips starting at -30.
+      //
+      // Removals are applied from the last cut backwards so that each shift
+      // sees positions that the later ones have not yet disturbed.
+      const byStart = [...targets].sort((a, b) => b.start - a.start);
+      for (const cut of byStart) {
+        for (const c of tl.clips) {
+          if (c.trackId !== cut.trackId) continue;
+          if (c.start >= cut.start) c.start -= clipLength(cut);
+        }
+      }
+
+      // The playhead rides along, but never past the start of the track: a
+      // playhead at -8 is a state you cannot scrub back from.
+      const first = tl.clips.length ? Math.min(...tl.clips.map((c) => c.start)) : 0;
+      tl.playhead = Math.max(Math.min(first, 0), tl.playhead);
+    }
+
+    tl.selection = tl.selection.filter((id) => !removing.has(id));
+    if (state.selectedTimelineClipId && removing.has(state.selectedTimelineClipId)) {
+      state.selectedTimelineClipId = null;
+    }
+    // Shrink the declared duration so timelineDuration() and the export range
+    // follow the edit instead of the old one.
+    const longest = tl.clips.reduce((m, c) => Math.max(m, c.start + clipLength(c)), 0);
+    if (longest > 0) tl.durationFrames = longest;
+  });
+  renderTimeline();
+  return targets.map((t) => t.id);
+}
+
+/** The clip the edit commands act on: the selection, else whatever is under the playhead. */
+function targetClip(clipId?: string): TimelineClip | undefined {
+  const tl = project.timeline;
+  if (clipId) return tl.clips.find((c) => c.id === clipId);
+  if (state.selectedTimelineClipId) {
+    const sel = tl.clips.find((c) => c.id === state.selectedTimelineClipId);
+    if (sel) return sel;
+  }
+  const ph = tl.playhead;
+  return tl.clips.find((c) => c.start <= ph && c.start + clipLength(c) > ph);
+}
+
+function rippleDelete(clipId?: string): string[] {
+  const t = targetClip(clipId);
+  if (!t) { log('ripple delete: no clip selected', 'warn'); return []; }
+  return removeClips([t.id], true);
+}
+
+function liftClip(clipId?: string): string[] {
+  const t = targetClip(clipId);
+  if (!t) { log('lift: no clip selected', 'warn'); return []; }
+  return removeClips([t.id], false);
+}
+
+/**
+ * Place a media clip on a track at a frame.
+ *
+ * `mode` is 'insert' (push what follows along, so nothing is overwritten) or
+ * 'overwrite' (replace the frames it covers). Inserting needs room: if the clip
+ * would run into the next one, it is refused rather than silently shortened,
+ * because a clip that quietly loses its tail is indistinguishable from a bug.
+ */
+function insertClip(
+  mediaId: string,
+  trackId: string,
+  frame?: number,
+  mode: 'insert' | 'overwrite' = 'insert',
+): TimelineClip | null {
+  const tl = project.timeline;
+  const media = project.mediaPool.find((m) => (m as { id?: string }).id === mediaId) as { id: string; durationFrames?: number } | undefined;
+  if (!media) { log(`insert: no media ${mediaId}`, 'warn'); return null; }
+
+  const track = tl.tracks.find((t) => t.id === trackId);
+  if (!track) { log(`insert: no track ${trackId}`, 'warn'); return null; }
+  if (track.locked) { log(`insert: ${track.name} is locked`, 'warn'); return null; }
+
+  const at = Math.max(0, Math.trunc(frame ?? tl.playhead));
+  const length = Math.max(1, Math.trunc(media.durationFrames ?? 0));
+  if (length <= 0) { log('insert: media has no duration', 'warn'); return null; }
+
+  const onTrack = timelineClipsOn(trackId);
+
+  // An insert makes room by pushing the tail along, so it is always
+  // placeable. The first version refused whenever a clip started at or after
+  // the insertion point — which is the clip immediately in front of it, so
+  // inserting at the head of an occupied track (the most common insert there
+  // is) was always rejected. Only an overwrite has to fit in what is already
+  // there, so only an overwrite can run out of room.
+  if (mode === 'overwrite') {
+    const next = onTrack.find((c) => c.start > at);
+    if (next && at + length > next.start) {
+      log(`overwrite: needs ${at + length - next.start} more frame(s) of room before ${next.label ?? next.id}`, 'warn');
+      return null;
+    }
+  }
+
+  let created: TimelineClip | null = null;
+  mutate(mode === 'insert' ? 'insert clip' : 'overwrite clip', () => {
+    if (mode === 'insert') {
+      for (const c of tl.clips) {
+        if (c.trackId === trackId && c.start >= at) c.start += length;
+      }
+    } else {
+      // An overwrite eats whatever it lands on, splitting a straddled clip
+      // rather than leaving a fragment behind the new one.
+      const hit = tl.clips.filter((c) => c.trackId === trackId && c.start < at + length && c.start + clipLength(c) > at);
+      for (const c of hit) {
+        if (c.start < at) {
+          c.outFrame = c.inFrame + (at - c.start);
+        } else {
+          const tail = c.start + clipLength(c) - (at + length);
+          if (tail > 0) {
+            c.start = at + length;
+            c.inFrame = c.inFrame + tail;
+          } else {
+            c.id = '';
+          }
+        }
+      }
+      tl.clips = tl.clips.filter((c) => c.id !== '');
+    }
+
+    created = {
+      id: newId('tl'),
+      mediaId,
+      trackId,
+      start: at,
+      inFrame: 0,
+      outFrame: length,
+      enabled: true,
+      label: (media as { name?: string }).name ?? mediaId,
+    };
+    tl.clips.push(created);
+    tl.selection = [created.id];
+    state.selectedTimelineClipId = created.id;
+    const longest = tl.clips.reduce((m, c) => Math.max(m, c.start + clipLength(c)), 0);
+    if (longest > 0) tl.durationFrames = longest;
+  });
+  renderTimeline();
+  return created;
+}
+
+/** Copy the selected clip and put the copy directly after it. */
+function duplicateClip(clipId?: string): TimelineClip | null {
+  const t = targetClip(clipId);
+  if (!t) { log('duplicate: no clip selected', 'warn'); return null; }
+  const length = clipLength(t);
+  let copy: TimelineClip | null = null;
+  mutate('duplicate clip', () => {
+    for (const c of project.timeline.clips) {
+      if (c.trackId === t.trackId && c.start >= t.start + length) c.start += length;
+    }
+    copy = { ...structuredClone(t), id: newId('tl'), start: t.start + length };
+    project.timeline.clips.push(copy);
+    project.timeline.selection = [copy.id];
+    state.selectedTimelineClipId = copy.id;
+  });
+  renderTimeline();
+  return copy;
+}
+
+/**
+ * Slide a clip along its track by `delta` frames.
+ *
+ * Ripple keeps the sequence gapless by moving the tail with it; slide leaves
+ * the tail where it is and opens a gap, which is how a retimed shot is lined
+ * up against its neighbour.
+ */
+function moveClip(clipId: string | undefined, delta: number, mode: 'ripple' | 'slide' = 'ripple'): boolean {
+  const t = targetClip(clipId);
+  if (!t) { log('move: no clip selected', 'warn'); return false; }
+  const by = Math.trunc(delta);
+  if (by === 0) return false;
+  const to = Math.max(0, t.start + by);
+  const actual = to - t.start;
+  if (actual === 0) { log('move: already at the start of the track', 'warn'); return false; }
+
+  const track = project.timeline.tracks.find((x) => x.id === t.trackId);
+  if (track?.locked) { log(`move: ${track.name} is locked`, 'warn'); return false; }
+
+  const length = clipLength(t);
+  const onTrack = timelineClipsOn(t.trackId).filter((c) => c.id !== t.id);
+  if (mode === 'slide') {
+    const clash = onTrack.find((c) => to < c.start + clipLength(c) && to + length > c.start);
+    if (clash) { log('move: a slide cannot overlap another clip', 'warn'); return false; }
+  }
+
+  mutate('move clip', () => {
+    if (mode === 'ripple') {
+      // A ripple move keeps the sequence gapless, which means the neighbours
+      // have to absorb the move: whatever the clip opens ahead of it closes
+      // behind it.
+      //
+      // The first version shifted every clip whose end touched the moved clip
+      // on a leftward move, which dragged the preceding clip off the front of
+      // the timeline — moving a clip at frame 20 left by 10 moved its neighbour
+      // from 0 to -10. Instead: push the tail right to open room, place the
+      // clip, then close the gap it left behind by growing (or trimming) the
+      // clip before it.
+      for (const c of project.timeline.clips) {
+        if (c.id === t.id || c.trackId !== t.trackId) continue;
+        if (c.start >= to) c.start += actual;
+      }
+      t.start = to;
+
+      // Close up behind: the clip ahead of the moved one is trimmed or grown
+      // so it butts against the new position. Both directions are needed —
+      // moving a clip left over a longer neighbour means trimming it, and
+      // leaving them overlapping is not an option.
+      let reach = t.start;
+      let guard = 0;
+      for (;;) {
+        const before = project.timeline.clips
+          .filter((c) => c.id !== t.id && c.trackId === t.trackId && c.start < reach && c.start + clipLength(c) <= reach + clipLength(t))
+          .sort((a, b) => (b.start + clipLength(b)) - (a.start + clipLength(a)))[0];
+        if (!before || guard++ > 64) break;
+        const end = before.start + clipLength(before);
+        if (end === reach) break;
+        if (end > reach) {
+          // Overlap: take the tail off the neighbour, but never below one frame.
+          if (reach - before.start <= 0) break;
+          before.outFrame = before.inFrame + (reach - before.start);
+        } else {
+          before.outFrame += reach - end;
+        }
+        reach = before.start;
+      }
+    } else {
+      t.start = to;
+    }
+  });
+  renderTimeline();
+  return true;
+}
+
+/**
+ * Trim one end of a clip by an absolute frame value.
+ *
+ * `edge` is 'start' or 'end'. Both are clamped so a clip can never invert or
+ * vanish, and trimming the start moves inFrame with it so the source content
+ * under the timeline does not shift.
+ */
+function trimClip(clipId: string | undefined, edge: 'start' | 'end', frame: number): boolean {
+  const t = targetClip(clipId);
+  if (!t) { log('trim: no clip selected', 'warn'); return false; }
+  const at = Math.trunc(frame);
+  mutate('trim clip', () => {
+    if (edge === 'start') {
+      const to = Math.max(0, Math.min(at, t.start + clipLength(t) - 1));
+      const shift = to - t.start;
+      t.start = to;
+      t.inFrame += shift;
+    } else {
+      t.outFrame = Math.max(t.inFrame + 1, at - t.start + t.inFrame);
+    }
+  });
+  renderTimeline();
+  return true;
+}
+
 function updatePlayheadDom(): void {
   const x = frameToX(project.timeline.playhead);
   playheadEl.style.setProperty('--playhead-x', `${x}px`);
@@ -2136,6 +2480,7 @@ function syncAll(): void {
   // looked present and did nothing.
   syncUndoButtons();
   syncFlipButtons();
+  syncEditTools();
   statusEl.space.textContent = project.settings.workingSpace;
   q('#menubar-project').textContent = project.settings.name;
 }
@@ -2175,6 +2520,83 @@ function syncUndoButtons(): void {
   for (const btn of qsa<HTMLButtonElement>('.viewer-tools [data-cmd]')) {
     const depth = btn.dataset.cmd === 'undo' ? undoStack.length : redoStack.length;
     btn.disabled = depth === 0;
+  }
+}
+
+/**
+ * The edit verbs in the timeline toolbar.
+ *
+ * Every one of these routes through the same function the agent command and
+ * the keyboard shortcut use, so the button, the menu item and the bot cannot
+ * drift apart. Each reports through the log when it refuses, rather than
+ * leaving the user wondering whether the click registered.
+ */
+function wireEditTools(): void {
+  for (const btn of qsa<HTMLButtonElement>('[data-edit]')) {
+    btn.addEventListener('click', () => {
+      const verb = btn.dataset.edit!;
+      const tl = project.timeline;
+      switch (verb) {
+        case 'split':
+          if (!split()) log('split: put the playhead inside a clip', 'warn');
+          break;
+        case 'ripple_delete': {
+          const removed = rippleDelete();
+          if (removed.length === 0) log('ripple delete: select a clip first', 'warn');
+          break;
+        }
+        case 'lift_clip': {
+          const removed = liftClip();
+          if (removed.length === 0) log('lift: select a clip first', 'warn');
+          break;
+        }
+        case 'insert_clip':
+        case 'overwrite_clip': {
+          // Media comes from the pool selection, falling back to the first
+          // clip; the track is whichever one holds the selected timeline clip.
+          const onTrack = targetClip()?.trackId;
+          const mediaId = (state.selectedClipId
+            ?? targetClip()?.mediaId
+            ?? (project.mediaPool[0] as { id?: string } | undefined)?.id) as string | undefined;
+          const trackId = (onTrack ?? tl.tracks.find((t) => t.kind === 'video')?.id ?? tl.tracks[0]?.id) as string | undefined;
+          if (!mediaId) { log(`${verb}: no media in the pool`, 'warn'); break; }
+          if (!trackId) { log(`${verb}: no track`, 'warn'); break; }
+          const made = insertClip(mediaId, trackId, tl.playhead, verb === 'insert_clip' ? 'insert' : 'overwrite');
+          if (!made) log(`${verb}: refused — not enough room, or the track is locked`, 'warn');
+          break;
+        }
+        case 'duplicate_clip':
+          if (!duplicateClip()) log('duplicate: select a clip first', 'warn');
+          break;
+        case 'move_left':
+        case 'move_right': {
+          const delta = (verb === 'move_left' ? -1 : 1) * Math.max(1, Math.round(project.timeline.fps));
+          if (!moveClip(undefined, delta, 'ripple')) log('move: select a clip first', 'warn');
+          break;
+        }
+        case 'add_track':
+          if (!addTrack()) log('add track: could not add one', 'warn');
+          break;
+        default: break;
+      }
+      syncEditTools();
+    });
+  }
+  syncEditTools();
+}
+
+/** Grey out the verbs that have nothing to act on, so the toolbar reads as a
+ *  state display as well as a set of buttons. */
+function syncEditTools(): void {
+  const tl = project.timeline;
+  const hasClip = !!targetClip();
+  const hasMedia = project.mediaPool.length > 0;
+  const needsClip = (v: string) => v === 'ripple_delete' || v === 'lift_clip' || v === 'duplicate_clip'
+    || v === 'move_left' || v === 'move_right';
+  for (const btn of qsa<HTMLButtonElement>('[data-edit]')) {
+    const v = btn.dataset.edit!;
+    const needsMedia = v === 'insert_clip' || v === 'overwrite_clip';
+    btn.disabled = needsClip(v) ? !hasClip : needsMedia ? !hasMedia : false;
   }
 }
 
@@ -2540,6 +2962,26 @@ export interface ResolveAgentApi {
   appendToTrack(trackId: string, mediaId: string, atFrame: number): TimelineClip | null;
   split(): boolean;
   trimToPlayhead(): boolean;
+  /**
+   * The basic edit verbs. Each returns what it acted on, or null / an empty
+   * array / false when it refused — so a caller can tell "did nothing" from
+   * "was refused", which is the distinction a bot driving a timeline needs.
+   */
+  /** Remove a clip and pull the rest of its track left. */
+  rippleDelete(clipId?: string): string[];
+  /** Remove a clip and leave a gap where it was. */
+  liftClip(clipId?: string): string[];
+  /** 'insert' pushes the tail along; 'overwrite' replaces the frames it covers. */
+  insertClip(mediaId: string, trackId: string, frame?: number, mode?: 'insert' | 'overwrite'): TimelineClip | null;
+  /** Copy the selected clip directly after itself. */
+  duplicateClip(clipId?: string): TimelineClip | null;
+  /** Slide along the track: 'ripple' moves the tail, 'slide' opens a gap. */
+  moveClip(clipId: string | undefined, delta: number, mode?: 'ripple' | 'slide'): boolean;
+  /** Trim one end to an absolute timeline frame. */
+  trimClip(clipId: string | undefined, edge: 'start' | 'end', frame: number): boolean;
+  /** Add a track; the existing implementation alternates video and audio. */
+  addTrack(): Track | null;
+
   setClipEnabled(clipId: string, enabled: boolean): boolean;
   setIn(): number;
   setOut(): number;
@@ -2623,6 +3065,13 @@ const api: ResolveAgentApi = {
   appendToTrack,
   split,
   trimToPlayhead,
+  rippleDelete,
+  liftClip,
+  insertClip,
+  duplicateClip,
+  moveClip,
+  trimClip,
+  addTrack,
   setClipEnabled: (clipId, enabled) => setClipEnabled(clipId, enabled),
   setIn,
   setOut,
@@ -2651,6 +3100,7 @@ function main(): void {
   // The WebGL path owns the viewer canvas; never also hand out a 2D context.
   wirePageSwitcher();
   wireTransport();
+  wireEditTools();
   wireMediaImport();
   wireMenus();
   wireKeyboard();
