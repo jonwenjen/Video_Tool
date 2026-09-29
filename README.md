@@ -8,6 +8,12 @@ reachable as a command, so an agent can perform a real grading session —
 import, balance, shape, isolate with a keyer, inspect with scopes, and render —
 without a human moving a single control.
 
+> **Read [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) before trusting anything here.**
+> The most important open bug makes the agent's readbacks stop responding to grade
+> changes while the picture on screen still moves correctly, which has already
+> produced several confidently wrong conclusions. It also means the underwater
+> grading work is not finished.
+
 ## Running it
 
 ```bash
