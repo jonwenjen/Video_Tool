@@ -16,6 +16,7 @@ export function defaultPrimary(): PrimaryState {
     contrast: 1,
     pivot: 0.435,
     brightness: 0,
+    exposure: 0,
     saturation: 1,
     hue: 0,
     colourBoost: 0,

@@ -1,5 +1,6 @@
 import { launchChrome } from './cdp-client.mjs';
 import { fetchFixture } from './fixture-guard.mjs';
+import { AGENT_PORT, AGENT_ORIGIN, agentUrl, agentEnv } from './test-isolation.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
@@ -30,7 +31,7 @@ for (let i = 0; i < 100; i++) { try { if ((await fetch(`${ORIGIN}/`)).ok) break;
 
 const b = await launchChrome(); const p = b;
 await p.enableDomains();
-await p.goto(`${ORIGIN}/`);
+await p.goto(agentUrl(PORT));
 await sleep(1500);
 await p.eval(`for (let i=0;i<100 && !document.querySelector('[data-ready="1"]');i++) await new Promise(r=>setTimeout(r,100)); return 1;`);
 await fetchFixture(b, '/test/fixtures/cast.png', { magicHex: '89504e47' });

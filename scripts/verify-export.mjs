@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { launchChrome } from './cdp-client.mjs';
 import { fetchFixture } from './fixture-guard.mjs';
+import { AGENT_PORT, AGENT_ORIGIN, agentUrl, agentEnv } from './test-isolation.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'out');
@@ -42,8 +43,7 @@ const srv = spawn('node', ['node_modules/vite/bin/vite.js', 'preview', '--port',
   cwd: ROOT, stdio: 'ignore',
 });
 // The browser client is built against 7801, so the test server must use it too.
-const AGENT_PORT = Number(process.env.EXPORT_AGENT_PORT ?? 7801);
-const ag = spawn('node', ['server/server.mjs'], { cwd: ROOT, stdio: 'ignore', env: { ...process.env, HERMES_RESOLVE_PORT: String(AGENT_PORT) } });
+const ag = spawn('node', ['server/server.mjs'], { cwd: ROOT, stdio: 'ignore', env: agentEnv() });
 let browser;
 const cleanup = () => {
   try { srv.kill('SIGKILL'); } catch { /* gone */ }
@@ -56,13 +56,13 @@ for (let i = 0; i < 120; i++) {
   await sleep(250);
 }
 for (let i = 0; i < 120; i++) {
-  try { if ((await fetch(`http://127.0.0.1:${AGENT_PORT}/health`)).ok) break; } catch { /* not up */ }
+  try { if ((await fetch(`${AGENT_ORIGIN}/health`)).ok) break; } catch { /* not up */ }
   await sleep(250);
 }
 let rpcN = 0;
 /** Drive the app the way an agent does: over the local RPC bridge. */
 async function rpc(command, params = {}) {
-  const res = await fetch(`http://127.0.0.1:${AGENT_PORT}/rpc`, {
+  const res = await fetch(`${AGENT_ORIGIN}/rpc`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ id: `x${++rpcN}`, command, params }),
   });
@@ -72,7 +72,7 @@ async function rpc(command, params = {}) {
 try {
   browser = await launchChrome();
   await browser.enableDomains();
-  await browser.goto(ORIGIN);
+  await browser.goto(agentUrl(PORT));
   await browser.eval('for (let i=0;i<100 && !document.querySelector(\'[data-ready="1"]\');i++) await new Promise(r=>setTimeout(r,100)); return 1;');
   await fetchFixture(browser, '/test/fixtures/cast.png', { magicHex: '89504e47' });
   await browser.eval(`

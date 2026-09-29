@@ -925,26 +925,47 @@ const num = (params: Record<string, unknown>, key: string): number | undefined =
 
 const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
   // ---- media ----------------------------------------------------------
-  open_media: ({ params }) => {
+  // open_media used to push a pool entry with width 0, height 0 and
+  // durationFrames 0 and return ok — a phantom clip that could never decode
+  // or show a frame, and which list_media then reported the zeros back as
+  // fact. import_media below went through the app's real import path; this
+  // now does too, so "opened" means actually opened.
+  open_media: async ({ params }) => {
     const a = needApp('open_media');
     const path = String(params.path);
     const pool = (a.project.mediaPool ??= []);
-    const existing = pool.find((m) => (m as { src?: string }).src === path) as { id: string } | undefined;
-    if (existing) return { id: existing.id, path, alreadyOpen: true };
+    const existing = pool.find((m) => (m as { src?: string }).src === path) as { id?: string; width?: number; height?: number } | undefined;
+    if (existing?.id && existing.width) {
+      return { id: existing.id, path, alreadyOpen: true, width: existing.width, height: existing.height };
+    }
 
-    const id = `media-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    pool.push({
-      id,
-      name: path.split('/').pop() ?? path,
-      src: path,
-      durationFrames: 0,
-      fps: 24,
-      width: 0,
-      height: 0,
-      kind: /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(path) ? 'image' : 'video',
-      attrs: {},
-    });
-    return { id, path, alreadyOpen: false, mediaCount: pool.length };
+    const url = /^https?:\/\//i.test(path) ? path : new URL(path, location.href).href;
+    let file: File;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      if (blob.size === 0) throw new Error('empty response');
+      file = new File([blob], path.split('/').pop() ?? path, { type: blob.type });
+    } catch (err) {
+      throw new CommandError(
+        `open_media could not read ${path}: ${err instanceof Error ? err.message : String(err)}`,
+        'media_unreadable',
+      );
+    }
+
+    if (typeof a.importFiles !== 'function') {
+      throw new CommandError('the app exposes no importFiles, so open_media cannot load anything', 'unsupported');
+    }
+    const before = pool.length;
+    await a.importFiles([file]);
+    const clip = pool.length > before
+      ? (pool[pool.length - 1] as { id?: string; width?: number; height?: number })
+      : undefined;
+    if (!clip?.id) {
+      throw new CommandError(`open_media loaded ${path} but no media entry appeared`, 'media_not_found');
+    }
+    return { id: clip.id, path, alreadyOpen: false, width: clip.width ?? 0, height: clip.height ?? 0, mediaCount: pool.length };
   },
 
   import_media: async ({ params }) => {
@@ -1208,12 +1229,17 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
   select_clip: ({ params }) => {
     const a = needApp('select_clip');
     const id = String(params.id);
-    a.selectClip?.(id);
     const t = a.project.timeline as Record<string, unknown> | undefined;
-    if (t) t.selection = [id];
     const clips = (t?.clips ?? []) as { id: string }[];
-    const clip = clips.find((c) => c.id === id);
-    return { id, found: !!clip, selection: [id] };
+    // Selecting an id that is not in the timeline used to set the selection to
+    // that id and return ok, so a typo looked exactly like a successful
+    // selection. Report it instead.
+    if (!clips.some((c) => c.id === id)) {
+      throw new CommandError(`no clip with id ${id} (timeline has ${clips.length})`, 'clip_not_found');
+    }
+    a.selectClip?.(id);
+    if (t) t.selection = [id];
+    return { id, found: true, selection: [id] };
   },
 
   // ---- node graph -----------------------------------------------------
@@ -1292,10 +1318,31 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     const value = coerceValue(params.value);
     const node = findNode(a, str(params, 'id'));
 
+    const grade = (node.grade ??= {});
+    const keys = splitPath(path);
+
+    // A path that does not exist used to be written anyway — setPath creates
+    // whatever intermediate objects it needs — and the command returned ok. A
+    // misspelled control therefore graded nothing and looked like it worked.
+    // Reject it, and name the keys that do exist so the caller can recover.
+    let parent: unknown = grade;
+    for (let i = 0; i < keys.length - 1; i++) {
+      parent = (parent as Record<string, unknown>)?.[keys[i]];
+      if (parent === undefined || parent === null) {
+        throw new CommandError(`no grade control at ${path}: ${keys[i]} is not a control`, 'unknown_param');
+      }
+    }
+    const leaf = keys[keys.length - 1];
+    if (parent === null || typeof parent !== 'object' || !(leaf in (parent as object))) {
+      const available = parent && typeof parent === 'object'
+        ? Object.keys(parent as object).slice(0, 24).join(', ')
+        : String(parent);
+      throw new CommandError(`no grade control named ${leaf} in ${keys.slice(0, -1).join('.') || 'grade'} (has: ${available})`, 'unknown_param');
+    }
+
     // Read the old value BEFORE applying, or `previous` reports the value that
     // was just written and the agent can never tell what it changed.
-    const grade = (node.grade ??= {});
-    const before = getPath(grade, splitPath(path));
+    const before = getPath(grade, keys);
 
     a.setParam?.(node.id, path, value);
 
@@ -1665,11 +1712,45 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     // into a canvas. WebGL canvases come out blank, so they are rasterised first.
     const width = Math.ceil(document.documentElement.scrollWidth || window.innerWidth);
     const height = Math.ceil(document.documentElement.scrollHeight || window.innerHeight);
-    const snapshot = await renderDomToCanvas(width, height);
+
+    let snapshot: HTMLCanvasElement;
+    let source: 'dom' | 'viewer' = 'dom';
+    try {
+      snapshot = await renderDomToCanvas(width, height);
+      // foreignObject silently produces an empty canvas when it cannot lay the
+      // document out, so an all-transparent result is treated as a failure
+      // rather than a screenshot of nothing.
+      if (snapshot.width * snapshot.height === 0) throw new Error('empty canvas');
+      const probe = snapshot.getContext('2d');
+      const alpha = probe ? probe.getImageData(0, 0, Math.min(4, snapshot.width), Math.min(4, snapshot.height)).data : null;
+      if (alpha && alpha.every((v, i) => i % 4 === 3 ? v === 0 : v === 0)) {
+        throw new Error('foreignObject produced a fully transparent image');
+      }
+    } catch (err) {
+      // Falling back to the viewer keeps the command useful — the graded image
+      // is what a colourist wants in a screenshot — and reports which one it
+      // produced rather than pretending the DOM path worked.
+      const viewer = document.querySelector('canvas[data-viewer], #viewer, .viewer canvas') as HTMLCanvasElement | null;
+      if (!viewer) {
+        throw new CommandError(
+          `could not rasterise the DOM (${err instanceof Error ? err.message : String(err)}) and no viewer canvas to fall back to`,
+          'screenshot_failed',
+        );
+      }
+      progress(0.6, 'falling back to the viewer canvas');
+      snapshot = document.createElement('canvas');
+      snapshot.width = viewer.width;
+      snapshot.height = viewer.height;
+      const ctx = snapshot.getContext('2d');
+      if (!ctx) throw new CommandError('could not get a 2d context for the viewer fallback', 'screenshot_failed');
+      ctx.drawImage(viewer, 0, 0);
+      source = 'viewer';
+    }
+
     const blob = await canvasBlob(snapshot);
     progress(0.85, 'writing');
     const written = await upload(str(params, 'path') ?? 'screens/ui.png', blob);
-    return { ...written, width, height, type: 'image/png' };
+    return { ...written, width: snapshot.width, height: snapshot.height, type: 'image/png', source };
   },
 
   save_project: async ({ params, progress }) => {

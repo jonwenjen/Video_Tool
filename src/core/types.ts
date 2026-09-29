@@ -82,6 +82,8 @@ export interface PrimaryState {
   contrast: number;   // 0.5..1.5, default 1
   pivot: number;     // 0.1..0.9, default 0.435
   brightness: number;// -0.5..0.5, default 0
+  /** Exposure offset in STOPS, as in Resolve. 0 is unity. */
+  exposure: number;  // -5..5, default 0
   saturation: number;// 0..2, default 1
   hue: number;       // degrees -180..180, default 0
   colourBoost: number; // 0..1, default 0

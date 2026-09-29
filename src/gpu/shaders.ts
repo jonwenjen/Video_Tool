@@ -312,6 +312,7 @@ uniform vec3  uGain;
 uniform vec3  uOffset;
 uniform float uContrast;
 uniform float uPivot;
+uniform float uExposure;      // stops; 0.0 is unity
 uniform float uBrightness;
 uniform float uSaturation;
 uniform float uContrastLow;
@@ -593,6 +594,12 @@ void main() {
     if (uGammaW != vec3(1.0)) c = spow3v(c, 1.0 / uGammaW);
     if (uGain != vec3(1.0))   c *= uGain;
     if (uOffset != vec3(0.0)) c += uOffset;
+
+    // Exposure is in stops, as in Resolve, and is a scene-linear multiply:
+    // 2^stops. A float uniform left at its default of 0.0 is unity, so this
+    // stays bit-exact when untouched. This used to have no uniform at all —
+    // the slider stored a value the shader never read.
+    if (uExposure != 0.0) c *= pow(2.0, uExposure);
 
     // Contrast, brightness, the tonal range and colour boost run on a
     // 1/2.2-encoded signal, because their reference points are perceptual:

@@ -23,10 +23,10 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { launchChrome } from './cdp-client.mjs';
 import { fetchFixture } from './fixture-guard.mjs';
+import { AGENT_PORT, AGENT_ORIGIN, agentUrl, agentEnv } from './test-isolation.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const APP_PORT = Number(process.env.VERIFY_PORT ?? 4178);
-const AGENT_PORT = Number(process.env.AGENT_PORT ?? 7801);
 const ORIGIN = `http://127.0.0.1:${APP_PORT}`;
 
 let passed = 0, failed = 0;
@@ -71,8 +71,8 @@ for (const f of ['cast.png', 'neutral-ramp.png', 'step-wedge.png']) {
 // 2. Servers. 127.0.0.1 as a LITERAL — WebCodecs needs a secure context and
 //    `localhost` does not provide one on this machine.
 // ---------------------------------------------------------------------------
-const j = (file, args) => spawn('node', [file, ...args], { cwd: ROOT, stdio: 'ignore' });
-procs.push(j('server/server.mjs', []));
+const j = (file, args, env) => spawn('node', [file, ...args], { cwd: ROOT, stdio: 'ignore', ...(env ? { env } : {}) });
+procs.push(j('server/server.mjs', [], agentEnv()));
 procs.push(j('node_modules/vite/bin/vite.js', ['preview', '--port', String(APP_PORT), '--strictPort', '--host', '127.0.0.1']));
 
 const waitFor = async (url, ms = 30000) => {
@@ -83,7 +83,7 @@ const waitFor = async (url, ms = 30000) => {
   }
   return false;
 };
-if (!await waitFor(`http://127.0.0.1:${AGENT_PORT}/health`)) {
+if (!await waitFor(`${AGENT_ORIGIN}/health`)) {
   console.error('[verify] agent server never came up'); process.exit(1);
 }
 if (!await waitFor(ORIGIN)) {
@@ -108,7 +108,7 @@ procs.push({ kill: () => browser.closeBrowser() });
 const page = browser;
 const ev = (body) => page.eval(body);
 
-const rpc = (command, params = {}) => fetch(`http://127.0.0.1:${AGENT_PORT}/rpc`, {
+const rpc = (command, params = {}) => fetch(`${AGENT_ORIGIN}/rpc`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ id: `v-${command}`, command, params }),
 }).then((r) => r.json());
@@ -118,7 +118,7 @@ const rpc = (command, params = {}) => fetch(`http://127.0.0.1:${AGENT_PORT}/rpc`
 // ---------------------------------------------------------------------------
 console.log('=== environment ===');
 await page.enableDomains();
-const href = await page.goto(ORIGIN);
+const href = await page.goto(agentUrl(APP_PORT));
 // A failed navigation leaves about:blank / chrome-error:// and every
 // assertion below would pass vacuously.
 check('app loads', href.startsWith(ORIGIN), href);
@@ -152,7 +152,7 @@ const boot = await ev(`
 check('window.__resolve published', boot.ready === true, `${boot.methods} methods`);
 check('32-bit float pipeline', boot.precision === 'float32', String(boot.precision));
 
-const health = await (await fetch(`http://127.0.0.1:${AGENT_PORT}/health`)).json();
+const health = await (await fetch(`${AGENT_ORIGIN}/health`)).json();
 // Exactly one: a leftover tab from an earlier run is still a live client, and
 // the agent's answer then depends on which tab happens to poll first.
 check('exactly one browser client', health.clients === 1, `clients=${health.clients}`);

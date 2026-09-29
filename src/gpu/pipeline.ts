@@ -1651,8 +1651,12 @@ export class ColorPipeline {
       || !rgbApprox(pr.gain, [1, 1, 1]) || !rgbApprox(pr.offset, [0, 0, 0])
       || !approx(pr.contrast, 1) || !approx(pr.brightness, 0)
       || !approx(pr.saturation, 1) || !approx(pr.contrastLow, 0)
-      || !approx(pr.contrastHigh, 0) || !approx(pr.shadowBias, 0)
-      || !approx(pr.highlightBias, 0) || !approx(pr.colourBoost, 0);
+ || !approx(pr.contrastHigh, 0) || !approx(pr.shadowBias, 0)
+ || !approx(pr.highlightBias, 0) || !approx(pr.colourBoost, 0)
+ // exposure was missing here too: the gate skipped the whole primary
+ // stage whenever only exposure was non-default, so even a bound
+ // uniform would have been discarded.
+ || !approx(pr.exposure, 0);
     b1('uPrimaryOn', primaryOn);
     f3('uLift', pr.lift);
     f3('uGammaW', pr.gamma);
@@ -1660,6 +1664,9 @@ export class ColorPipeline {
     f3('uOffset', pr.offset);
     f1('uContrast', pr.contrast);
     f1('uPivot', pr.pivot);
+    // The shader gained uExposure when primary.exposure became a real field;
+    // without this binding the uniform stayed 0 and the control did nothing.
+    f1('uExposure', pr.exposure);
     f1('uBrightness', pr.brightness);
     f1('uSaturation', pr.saturation);
     f1('uContrastLow', pr.contrastLow);
