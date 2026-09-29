@@ -9,45 +9,72 @@ below is a case the suite does **not** cover. That is the point of this file.
 
 ---
 
-## 1. The render output latches. Highest priority, not fixed.
+## 1. RETRACTED — the "render latches" bug could not be reproduced
 
-**Symptom.** A grade change takes effect once, then the picture stops responding
-to further changes — including reverting to the value it started at. Only a page
-reload clears it. A seek does not.
+**This was the top item in the previous version of this file. It was wrong, and
+the thing that made it look true was itself a bug.**
 
-**Observed, on a long-running tab:**
+The report was: a grade change takes effect once and then the picture stops
+responding, including reverting. Only a reload clears it. Measured as
+`exposure 0 → 1.5 → 0` where the final 0 did not revert.
 
-```
-exposure 0     scopes [0.1475, 0.2384, 0.1689]   export 10,656,873 bytes
-exposure 1.5   scopes [0.2573, 0.3974, 0.2903]   export 11,869,842 bytes   <- changed
-exposure 0     scopes [0.2573, 0.3974, 0.2903]   export 11,869,842 bytes   <- did not revert
-```
-
-On a freshly reloaded tab the same sequence sometimes changes nothing at all,
-including the first edit. `scopes`, `read_pixel` and `export_frame` all agree with
-each other and disagree with what the operator sees on screen.
-
-**Why this matters more than its size.** Most of what follows in this file is
-either this bug or an artefact of mistaking it for something else. Four separate
-conclusions in this session were wrong because of it — see the trap at the end.
-
-**Where to look.** `grabPixels` in `src/agent/client.ts` prefers
-`pipeline.readPixels`, which reads the pipeline's own display framebuffer. The
-viewer canvas is composited through the default framebuffer. Those are different
-attachments. The most likely place for the fault is the framebuffer binding and
-any attachment-swap inside `ColorPipeline.render` in `src/gpu/pipeline.ts` —
-not yet read in this session.
-
-**How to reproduce.**
+With the measurement environment corrected (see issue 1b) and a real decodable
+source on the timeline, the render path is **exactly reversible**:
 
 ```
-POST /rpc {"command":"set_playhead","params":{"frame":30}}
-POST /rpc {"command":"get_scopes"}                              # record
-POST /rpc {"command":"set_node_param","params":{"path":"primary.exposure","value":1.5}}
-POST /rpc {"command":"get_scopes"}                              # should change
-POST /rpc {"command":"set_node_param","params":{"path":"primary.exposure","value":0}}
-POST /rpc {"command":"get_scopes"}                              # should return to the first value
+exp 0    [0.1071, 0.1027, 0.1286]
+exp 1.5  [0.1731, 0.1882, 0.2281]
+exp 0    [0.1071, 0.1027, 0.1286]   <- exact return
+exp 1.5  [0.1731, 0.1882, 0.2281]
+exp 0    [0.1071, 0.1027, 0.1286]   <- exact return
 ```
+
+`targets` and `texDisplay` keep stable identities across every frame. The
+pipeline is not caching, not latching, and not skipping renders.
+
+**What was actually happening:** `import_media` had no check for an empty
+response body and no check that the body was media at all. A dev/preview server
+answers an unknown path with `index.html` and a **200**. So a bad path produced
+a `File` full of HTML named `.mp4`, it entered the media pool, `import_media`
+returned `ok`, and the `<video>` built from it sat at `readyState 0` forever.
+Every readback of that session was a measurement of a pipeline with no source.
+
+The one thing not explained: on the operator's live tab the readback returned
+**non-zero** underwater values (G/R 1.57, matching a real decode) that would not
+move. That is still unexplained. It may have been a different tab state. Do not
+assume this issue is closed — assume the evidence for it was bad and go and look
+again with a correct setup.
+
+Hypotheses that were raised and are now **ruled out by measurement**, not by
+argument: `ensureTargets` rebuilding each frame, `framebufferTexture2D`
+re-pointing the display attachment, viewer canvas size oscillation, a dirty flag
+or early return in the render path, `mergeGrade` corrupting RGB arrays, the
+`?? 0` fallback in the uniform helper zeroing channels, and the cached
+`lastScopes` object.
+
+---
+
+## 1b. `import_media` accepted HTML and empty bodies. FIXED, verified.
+
+`open_media` checked `res.ok` and `blob.size === 0`. `import_media` checked only
+`res.ok`, so it swallowed every failure a preview server can produce for a bad
+path and reported success. Fixed in `src/agent/client.ts`:
+
+- reject a zero-length body
+- reject a body that is an HTML document, by content-type or by sniffing the
+  first bytes
+- match clips back to their paths by **name** rather than by array index — one
+  skipped file shifted every later index and reported the wrong source
+
+Verified in both directions, in a real browser:
+
+```
+bad path       ok: false  "server returned HTML (text/html), not a media file"   pool: 0
+real fixture   ok: true   {width:320, height:240, frames:71}                     pool: 1
+```
+
+A guard that only ever rejects would have been as broken as the original. Both
+directions were checked.
 
 ---
 
@@ -82,9 +109,10 @@ implementation. A red gain of 1.38 is a real 1.38x multiply there and something
 else in the simulation. Commit `41c22bc` was written on the strength of that
 simulation and the grade it produced was visibly far too red.
 
-Do not trust `underwater-grade.mjs` as evidence about the app until it is
-reconciled with the real pipeline, or replaced by a measurement taken from the
-pipeline itself.
+Do not trust `underwater-grade.mjs` as evidence about the app. The measurement
+environment is now capable of measuring the real pipeline — see issue 1b for the
+setup that makes that work — so the right move is to grade against measurements
+taken from the pipeline, not from the simulation.
 
 The footage itself, measured by decoding the file, is sound and worth keeping:
 

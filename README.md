@@ -9,10 +9,10 @@ import, balance, shape, isolate with a keyer, inspect with scopes, and render â€
 without a human moving a single control.
 
 > **Read [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) before trusting anything here.**
-> The most important open bug makes the agent's readbacks stop responding to grade
-> changes while the picture on screen still moves correctly, which has already
-> produced several confidently wrong conclusions. It also means the underwater
-> grading work is not finished.
+> The top item in it is a retraction: a "the render latches" bug that turned out
+> to be a broken measurement, not a broken renderer. The underwater grading work
+> is not finished, and the script that produced the first attempt simulates the
+> colour pipeline rather than measuring it.
 
 ## Running it
 

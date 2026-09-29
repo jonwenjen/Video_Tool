@@ -235,6 +235,28 @@ const SPECS: Record<string, Record<string, FieldSpec>> = {
 };
 
 /**
+ * True when a fetched body is an HTML document rather than media.
+ *
+ * Dev and preview servers answer an unknown path with index.html and a 200,
+ * so `res.ok` is not evidence that a media fetch returned media. Without this
+ * a bad path imported silently: a File of HTML named ".mp4" went into the
+ * pool, and the <video> built from it sat at readyState 0 forever.
+ *
+ * The header is checked as well as the type because a server can serve HTML
+ * with the wrong content-type, and an mp4 with the wrong one is still a file
+ * that decodes.
+ */
+function looksLikeHtml(type: string, head: Uint8Array): boolean {
+  const t = (type || '').toLowerCase();
+  if (t.includes('text/html') || t.includes('application/xhtml')) return true;
+  if (t.startsWith('video/') || t.startsWith('image/') || t.startsWith('audio/')) return false;
+  // No useful type: fall back to sniffing. "<!DO", "<htm" and "<html" are
+  // the only shapes a served index.html can start with after whitespace.
+  const s = String.fromCharCode(...head.subarray(0, 9)).trimStart().toLowerCase();
+  return s.startsWith('<!doctype') || s.startsWith('<html') || s.startsWith('<htm');
+}
+
+/**
  * Accepts an RGB triple in either shape the codebase produces: a real tuple, or
  * an array spread into an object (`{...([1,1,1])}`, which cpugrade's
  * autoWhiteBalance returns on its already-neutral branches). Being strict here
@@ -913,6 +935,10 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       if (blob.size === 0) throw new Error('empty response');
+      const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+      if (looksLikeHtml(blob.type, head)) {
+        throw new Error(`server returned HTML (${blob.type || 'text/html'}), not a media file`);
+      }
       file = new File([blob], path.split('/').pop() ?? path, { type: blob.type });
     } catch (err) {
       throw new CommandError(
@@ -955,7 +981,10 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     // Going through importFiles means the same probe and decode run as a drag
     // and drop, and the reported dimensions are measured rather than invented.
     const files: File[] = [];
-    const order: string[] = [];
+    // Match clips back to their source by NAME, not by array position.
+    // importFiles skips anything it does not recognise, so a single skip
+    // shifts every later index and reports the wrong path for every clip.
+    const pathByName = new Map<string, string>();
     for (const path of paths) {
       if (pool.some((m) => (m as { src?: string }).src === path)) { skipped.push(path); continue; }
       const url = /^https?:\/\//i.test(path) ? path : new URL(path, location.href).href;
@@ -963,8 +992,18 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
-        files.push(new File([blob], path.split('/').pop() ?? path, { type: blob.type }));
-        order.push(path);
+        if (blob.size === 0) throw new Error('empty response body');
+        // A dev/preview server answers an unknown path with index.html and a
+        // 200, so res.ok alone is not proof of media. Accepting that produced
+        // a File full of HTML named ".mp4": it imported without error and the
+        // <video> then sat at readyState 0 forever.
+        const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+        if (looksLikeHtml(blob.type, head)) {
+          throw new Error(`server returned HTML (${blob.type || 'text/html'}), not a media file`);
+        }
+        const name = path.split('/').pop() ?? path;
+        files.push(new File([blob], name, { type: blob.type }));
+        pathByName.set(name, path);
       } catch (err) {
         failed.push({ path, error: err instanceof Error ? err.message : String(err) });
       }
@@ -976,8 +1015,8 @@ const HANDLERS: Record<string, (ctx: Ctx) => unknown | Promise<unknown>> = {
     }
 
     (clips as { id?: string; name?: string; width?: number; height?: number; durationFrames?: number }[])
-      .forEach((clip, n) => {
-        const src = order[n] ?? clip.name ?? '';
+      .forEach((clip) => {
+        const src = pathByName.get(clip.name ?? '') ?? clip.name ?? '';
         if (bin && clip.id) bin.clipIds.push(clip.id);
         added.push({
           id: clip.id ?? '',
