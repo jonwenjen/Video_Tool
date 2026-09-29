@@ -14,12 +14,13 @@
     "typecheck": "tsc --noEmit",
     "agent": "node server/server.mjs",
     "fixtures": "node test/fixtures/make-images.mjs && node scripts/make-video.mjs",
-    "verify": "node scripts/verify.mjs && node scripts/verify-playback.mjs && node scripts/verify-node-curves.mjs && node scripts/verify-curves.mjs && node scripts/verify-export.mjs",
+    "verify": "node scripts/verify.mjs && node scripts/verify-playback.mjs && node scripts/verify-node-curves.mjs && node scripts/verify-curves.mjs && node scripts/verify-flip.mjs && node scripts/verify-export.mjs",
     "fixtures:video": "node scripts/make-video.mjs",
     "verify:playback": "node scripts/verify-playback.mjs",
     "verify:export": "node scripts/verify-export.mjs",
     "verify:curves": "node scripts/verify-curves.mjs",
-    "verify:nodes": "node scripts/verify-node-curves.mjs"
+    "verify:nodes": "node scripts/verify-node-curves.mjs",
+    "verify:flip": "node scripts/verify-flip.mjs"
   },
   "dependencies": {
     "mp4-muxer": "^5.2.2"

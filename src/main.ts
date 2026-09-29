@@ -72,6 +72,13 @@ export interface ColorPipelineLike {
   ): void;
   setLut?(lut: unknown): void;
   resolveKeyframes?(grade: GradeState, frame: number): GradeState;
+  /**
+   * Picture flip / mirror, applied at the display stage. Optional so the
+   * NullPipeline fallback and any test double stay valid: a stub that cannot
+   * flip simply reports false and the buttons reflect that.
+   */
+  setUserFlip?(x: boolean, y?: boolean): void;
+  getUserFlip?(): { x: boolean; y: boolean };
   /** Rect readback in pixels; returns RGBA floats. */
   readPixels?(x: number, y: number, w: number, h: number): ArrayLike<number> | null;
   analyze?(): ScopeData | null;
@@ -2122,6 +2129,13 @@ function syncAll(): void {
   updateMarkers();
   updatePlayheadDom();
   updatePrecisionStatus();
+  // Every mutation lands here, so the header buttons read the real stack
+  // depths from here. They used to be synced once at wire time and then go
+  // stale — and a stale `disabled` plus `pointer-events: none` means the click
+  // is swallowed before the handler ever runs, which is why the undo button
+  // looked present and did nothing.
+  syncUndoButtons();
+  syncFlipButtons();
   statusEl.space.textContent = project.settings.workingSpace;
   q('#menubar-project').textContent = project.settings.name;
 }
@@ -2133,6 +2147,34 @@ function syncAll(): void {
 function wirePageSwitcher(): void {
   for (const btn of qsa<HTMLButtonElement>('.page-btn')) {
     btn.addEventListener('click', () => gotoPage(btn.dataset.page as PageId));
+  }
+}
+
+/**
+ * Reflect the flip state in the buttons, and keep undo's availability honest.
+ *
+ * A permanently-enabled undo button is worse than none: it teaches you that
+ * some presses do nothing. These read the real stack depths instead.
+ */
+function syncFlipButtons(): void {
+  const cur = pipeline?.getUserFlip?.() ?? { x: false, y: false };
+  for (const btn of qsa<HTMLElement>('[data-flip="x"]')) {
+    btn.setAttribute('aria-pressed', String(cur.x));
+  }
+  for (const btn of qsa<HTMLElement>('[data-flip="y"]')) {
+    btn.setAttribute('aria-pressed', String(cur.y));
+  }
+  const any = cur.x || cur.y;
+  for (const btn of qsa<HTMLButtonElement>('[data-flip="reset"]')) {
+    btn.disabled = !any;
+    btn.style.opacity = any ? '' : '0.4';
+  }
+}
+
+function syncUndoButtons(): void {
+  for (const btn of qsa<HTMLButtonElement>('.viewer-tools [data-cmd]')) {
+    const depth = btn.dataset.cmd === 'undo' ? undoStack.length : redoStack.length;
+    btn.disabled = depth === 0;
   }
 }
 
@@ -2153,6 +2195,35 @@ function wireTransport(): void {
       default: break;
     }
   });
+
+  // Picture flip / mirror, and the undo pair, in the viewer header.
+  //
+  // Flip is a display-stage transform, so it deliberately does not push an
+  // undo entry: it changes what you are looking at, not the project, and
+  // stepping back through history to undo a mirror would be baffling. Undo is
+  // wired to the same functions the keyboard shortcut uses, so a button and
+  // ⌘Z can never disagree.
+  qsa<HTMLElement>('[data-flip]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const which = btn.dataset.flip;
+      const cur = pipeline?.getUserFlip?.() ?? { x: false, y: false };
+      if (which === 'reset') pipeline?.setUserFlip?.(false, false);
+      else if (which === 'x') pipeline?.setUserFlip?.(!cur.x, cur.y);
+      else if (which === 'y') pipeline?.setUserFlip?.(cur.x, !cur.y);
+      syncFlipButtons();
+      paintViewer();
+    });
+  });
+
+  qsa<HTMLButtonElement>('.viewer-tools [data-cmd]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.cmd === 'undo') undo();
+      else if (btn.dataset.cmd === 'redo') redo();
+      syncUndoButtons();
+    });
+  });
+  syncFlipButtons();
+  syncUndoButtons();
 
   q('#zoom').addEventListener('input', (e) => {
     state.zoom = Number((e.target as HTMLInputElement).value);

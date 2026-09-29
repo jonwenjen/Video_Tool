@@ -816,6 +816,7 @@ uniform float uDisplayGamma;
 uniform float uProjectGamma;
 uniform float uClampOut;     // 0 / 1  <- the only clamp in the pipeline
 uniform float uFlipY;
+uniform vec2  uUserFlip;   // 0..1 per axis: the picture flip / mirror control
 
 out vec4 fragColor;
 
@@ -828,6 +829,13 @@ float linearToSrgb(float c) {
 void main() {
   vec2 uv = gl_FragCoord.xy / uResolution;
   if (uFlipY > 0.5) uv.y = 1.0 - uv.y;
+
+  // The picture flip, applied to the sampling coordinates after the y-up
+  // conversion above. Mirroring the coordinates rather than the pixels keeps
+  // this a display-stage transform: no intermediate copy, and the grade
+  // upstream is untouched, which is what a viewer flip should do.
+  if (uUserFlip.x > 0.5) uv.x = 1.0 - uv.x;
+  if (uUserFlip.y > 0.5) uv.y = 1.0 - uv.y;
 
   vec3 c = uToOutput * texture(uSource, uv).rgb;
 

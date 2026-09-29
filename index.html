@@ -211,6 +211,24 @@
               <span class="tc" id="viewer-tc" data-tc="viewer">00:00:00:00</span>
               <button class="icon-btn" type="button" data-viewer-mode="fit" title="Fit to window">FIT</button>
               <button class="icon-btn" type="button" data-viewer-mode="100" title="Actual size">1:1</button>
+              <!--
+                Flip and undo live in the viewer header, not in a menu: both are
+                things you reach for mid-inspection, and a control you have to
+                go looking for is a control you do not use. They are the
+                largest hit targets in this bar for the same reason.
+              -->
+              <span class="tool-sep" role="separator" aria-hidden="true"></span>
+              <button class="icon-btn flip-btn" type="button" data-flip="x" aria-pressed="false"
+                      title="Flip horizontally (mirror left-right)">⇋</button>
+              <button class="icon-btn flip-btn" type="button" data-flip="y" aria-pressed="false"
+                      title="Flip vertically (upside down)">⇵</button>
+              <button class="icon-btn" type="button" data-flip="reset"
+                      title="Clear both flips">RESET</button>
+              <span class="tool-sep" role="separator" aria-hidden="true"></span>
+              <button class="icon-btn undo-btn" type="button" data-cmd="undo"
+                      title="Undo the last change (⌘Z)">↶ UNDO</button>
+              <button class="icon-btn undo-btn" type="button" data-cmd="redo"
+                      title="Redo (⇧⌘Z)">↷ REDO</button>
             </div>
           </div>
           <div class="viewer-stage" id="viewer-stage">

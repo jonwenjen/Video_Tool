@@ -473,6 +473,12 @@ export class ColorPipeline {
    * than the GPU upload it avoids.
    */
   private curveSig = '';
+  /**
+   * The picture flip / mirror, in output pixels. Applied at the display stage
+   * so it does not disturb the graded image upstream — a viewer flip should
+   * not become a grade change.
+   */
+  private userFlip = { x: false, y: false };
   private linearFloatFilter = false;
   private lastFrame = -1;
   /**
@@ -1883,6 +1889,8 @@ export class ColorPipeline {
     if (lC) gl.uniform1f(lC, 1);
     const lF = this.loc('output', 'uFlipY');
     if (lF) gl.uniform1f(lF, flipY ? 1 : 0);
+    const lUF = this.loc('output', 'uUserFlip');
+    if (lUF) gl.uniform2f(lUF, this.userFlip.x ? 1 : 0, this.userFlip.y ? 1 : 0);
     this.bindTex('output', 'uSource', 0, srcTex);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
@@ -1898,6 +1906,16 @@ export class ColorPipeline {
 
   getOutputSpace(): OutputSpace {
     return this.options.outputSpace;
+  }
+
+  /** Flip / mirror the picture. Either axis may be set independently. */
+  setUserFlip(x: boolean, y?: boolean): void {
+    this.userFlip = { x: !!x, y: y === undefined ? this.userFlip.y : !!y };
+  }
+
+  /** The current flip, for the UI to reflect and for the agent to report. */
+  getUserFlip(): { x: boolean; y: boolean } {
+    return { ...this.userFlip };
   }
 
   setSourceOptions(opts: SourceOptions): void {
