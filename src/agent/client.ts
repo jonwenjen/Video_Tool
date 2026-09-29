@@ -2242,8 +2242,23 @@ async function pollOnce(): Promise<void> {
   const res = await fetch(`${ORIGIN}/client/poll?client=${encodeURIComponent(CLIENT_ID)}&wait=25000`, {
     headers: { 'x-hermes-client': CLIENT_ID },
   });
-  if (res.status === 204) return;
-  if (!res.ok) throw new Error(`poll failed: HTTP ${res.status}`);
+  // 204 means the server does not know this client — it restarted, or the
+  // entry was reaped. Re-announce on the next connect, otherwise the
+  // capabilities signature is unchanged and the hello is never sent again, so
+  // the client stays invisible for the life of the page. It polls happily and
+  // is simply never in the registry.
+  if (res.status === 204) {
+    // Re-announce here rather than only clearing the signature: the poll loop
+    // keeps running without returning to connect(), so clearing alone would
+    // leave nothing to trigger the next hello.
+    lastAnnounced = null;
+    await announce();
+    return;
+  }
+  if (!res.ok) {
+    lastAnnounced = null;
+    throw new Error(`poll failed: HTTP ${res.status}`);
+  }
 
   const body = (await res.json()) as { kind?: string; requests?: AgentRequest[] };
   if (body.kind === 'bye') throw new Error('server shutting down');

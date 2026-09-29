@@ -4,9 +4,12 @@
  * WHY this file is not shared code: the three peers (Node server, browser bundle,
  * CLI) run on different loaders. The server and CLI are plain .mjs with no build
  * step and the browser is compiled by Vite, so the two .mjs files keep a
- * deliberately tiny mirror of the few constants they need. `COMMAND_NAMES` is the
- * single written definition; `hermes-resolve doctor` surfaces drift if the mirror
- * ever goes stale.
+ * deliberately tiny mirror of the few constants they need.
+ *
+ * COMMAND_NAMES is DERIVED from COMMAND_TABLE below, not written out, so a new
+ * command cannot exist in the executor while being invisible to the server.
+ * The seven edit verbs were missing from COMMAND_TABLE for exactly that
+ * reason: they worked, the server routed them, and no client advertised them.
  */
 
 import type { AgentCommandMap } from '../core/types.js';
@@ -151,6 +154,13 @@ const COMMAND_TABLE: { readonly [K in CommandName]: true } = {
   append_to_track: true,
   trim_to_playhead: true,
   set_clip_enabled: true,
+  ripple_delete: true,
+  lift_clip: true,
+  insert_clip: true,
+  duplicate_clip: true,
+  move_clip: true,
+  trim_clip: true,
+  add_track: true,
   play: true,
   pause: true,
   step_playhead: true,

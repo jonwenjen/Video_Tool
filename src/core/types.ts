@@ -354,6 +354,13 @@ export interface AgentCommandMap {
   set_playhead: { frame: number };
   goto_timecode: { timecode: string };
   split: { frame?: number };
+  ripple_delete?: { id?: string };
+  lift_clip?: { id?: string };
+  insert_clip?: { mediaId?: string; trackId?: string; frame?: number; mode?: 'insert' | 'overwrite' };
+  duplicate_clip?: { id?: string };
+  move_clip?: { id?: string; delta: number; mode?: 'ripple' | 'slide' };
+  trim_clip?: { id?: string; edge: 'start' | 'end'; frame: number };
+  add_track?: Record<string, never>;
   append_to_track: { mediaId?: string; trackId?: string; atFrame?: number };
   trim_to_playhead: { frame?: number };
   set_clip_enabled: { clipId?: string; enabled?: boolean };
