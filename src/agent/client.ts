@@ -2266,10 +2266,20 @@ async function pollOnce(): Promise<void> {
   if (requests.length === 0) return;
 
   const responses: AgentResponse[] = [];
+  // Tell the server this client is busy for the duration. A command can block
+  // the main thread outright (readPixels on a 4K frame is a synchronous 33 MB
+  // readback), so this tab cannot poll while it works and its lastSeen decays.
+  // Without the flag the server prefers whichever idle tab polled last, and
+  // the work lands in a window the operator is not looking at.
+  void setBusy(true);
   // Sequential: commands mutate shared project state, so interleaving a batch
   // would make results depend on scheduling.
-  for (const request of requests) {
-    responses.push(await handleRequest(request));
+  try {
+    for (const request of requests) {
+      responses.push(await handleRequest(request));
+    }
+  } finally {
+    void setBusy(false);
   }
   await fetch(`${ORIGIN}/client/result`, {
     method: 'POST',
@@ -2277,6 +2287,14 @@ async function pollOnce(): Promise<void> {
     body: JSON.stringify(responses),
   });
   backoff = 500;
+}
+
+function setBusy(busy: boolean): Promise<unknown> {
+  return fetch(`${ORIGIN}/client/busy?client=${encodeURIComponent(CLIENT_ID)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ busy }),
+  }).catch(() => { /* the poll loop re-establishes the session */ });
 }
 
 function scheduleReconnect(): void {

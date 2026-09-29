@@ -220,12 +220,23 @@ function reapClients() {
  * client instead: that is the tab the operator is actually looking at.
  */
 function preferredClientId() {
+  // A client running a command is not polling, so its lastSeen goes stale
+  // while it works. Ranking on lastSeen alone therefore hands the work to
+  // whichever IDLE tab happened to poll most recently — the exact tab the
+  // operator is not looking at. An idle client always outranks a busy one;
+  // within the same busyness, the most recently seen wins.
   let best = null;
   for (const [id, client] of clients) {
-    if (!best || client.lastSeen > best.lastSeen
-      || (client.lastSeen === best.lastSeen && id > best.id)) {
-      best = { id, lastSeen: client.lastSeen };
+    if (best) {
+      if (client.busy !== best.busy) {
+        if (client.busy) continue;
+      } else if (client.lastSeen < best.lastSeen) {
+        continue;
+      } else if (client.lastSeen === best.lastSeen && id < best.id) {
+        continue;
+      }
     }
+    best = { id, lastSeen: client.lastSeen, busy: client.busy === true };
   }
   return best ? best.id : null;
 }
@@ -532,12 +543,26 @@ const server = createServer(async (req, res) => {
 
     // ---- browser-facing channel -------------------------------------------
 
+    // Busy signalling. A client that is executing a command is not polling, so
+    // its lastSeen decays and a parked idle tab would otherwise be preferred.
+    // The client posts this before and after a batch.
+    if (req.method === 'POST' && route === '/client/busy') {
+      reapClients();
+      const id = url.searchParams.get('client') || '';
+      const client = clients.get(id);
+      if (!client) { json(res, 200, { ok: false, error: 'unknown client' }); return; }
+      client.busy = readBody(body).busy === true;
+      client.lastSeen = Date.now();
+      json(res, 200, { ok: true, busy: client.busy });
+      return;
+    }
+
     if (req.method === 'GET' && route === '/client/poll') {
       reapClients();
       const id = url.searchParams.get('client') || 'anonymous';
       let client = clients.get(id);
       if (!client) {
-        client = { id, connectedAt: Date.now(), lastSeen: Date.now(), commands: [], capabilities: {}, wake: null };
+        client = { id, connectedAt: Date.now(), lastSeen: Date.now(), commands: [], capabilities: {}, wake: null, busy: false };
         clients.set(id, client);
         log(`browser client connected: ${id}`);
       }
