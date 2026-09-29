@@ -2770,8 +2770,24 @@ function runCommand(cmd: string, data: DOMStringMap | Record<string, string | un
     case 'save_project': log('save_project: project lives in memory only in this shell', 'warn'); break;
     case 'undo': undo(); break;
     case 'redo': redo(); break;
-    case 'copy': log('copy: grade copied to the internal clipboard', 'ok'); break;
-    case 'paste': log('paste: no clipboard grade yet', 'warn'); break;
+    // These used to log a success and store nothing, so paste could never
+    // succeed and copy claimed work it never did.
+    case 'copy': {
+      const n = findNode();
+      if (!n) { log('copy: no node selected', 'warn'); break; }
+      gradeClipboard = structuredClone(n.grade);
+      log(`copy: grade of ${n.id} copied`, 'ok');
+      break;
+    }
+    case 'paste': {
+      const clip = gradeClipboard;
+      if (!clip) { log('paste: copy a grade first', 'warn'); break; }
+      const n = findNode();
+      if (!n) { log('paste: no node selected', 'warn'); break; }
+      mutate('paste grade', () => { n.grade = structuredClone(clip); });
+      log(`paste: grade applied to ${n.id}`, 'ok');
+      break;
+    }
     case 'trim_in': setIn(); break;
     case 'trim_out': setOut(); break;
     case 'trim_clip': trimToPlayhead(); break;
@@ -2785,7 +2801,9 @@ function runCommand(cmd: string, data: DOMStringMap | Record<string, string | un
     case 'auto_balance': log('auto_balance: owned by the pipeline workstream', 'warn'); break;
     case 'mark_in': setIn(); break;
     case 'mark_out': setOut(); break;
-    case 'add_marker': log(`marker @ ${project.timeline.playhead}`, 'ok'); break;
+    // Markers are not in the timeline model yet. Saying "ok" here was a lie:
+    // the log read as though a marker had been placed and nothing was.
+    case 'add_marker': log('markers are not implemented yet — no marker was created', 'warn'); break;
     case 'toggle_scopes': setPanelVisible('scopes', !state.panelsVisible.scopes); break;
     case 'toggle_nodes': setPanelVisible('nodes', !state.panelsVisible.nodes); break;
     case 'toggle_console': toggleConsole(); break;
@@ -2806,6 +2824,11 @@ function runCommand(cmd: string, data: DOMStringMap | Record<string, string | un
     default: log(`unknown command ${cmd}`, 'warn');
   }
 }
+
+/** Internal grade clipboard. Deliberately not the system clipboard: it holds a
+ *  live object graph, and a page that never sees the OS clipboard cannot
+ *  silently lose the OS one. */
+let gradeClipboard: Graph['nodes'][number]['grade'] | null = null;
 
 function addTrack(): Track | null {
   const kinds: Track['kind'][] = ['video', 'audio'];
